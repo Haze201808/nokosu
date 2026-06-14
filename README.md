@@ -1,6 +1,15 @@
 
+uv venv && source .venv/bin/activate
 
 
+## 構成
+EC2 t3.micro (Ubuntu)
+  └── Security Group (80, 443, 22)
+  └── Flask app (gunicorn + nginx)
+  └── SQLite (EBSに永続化、デフォルトで8GB)
+
+
+## ディレクトリ構成
 ```text
 nokosu/
 ├── app.py                  # Flaskメインアプリ
@@ -31,13 +40,3 @@ nokosu/
 ```
 
 
-RenderからEC2への移行は簡単か？
-はい、かなり楽です。 PostgreSQLは同じなので：
-bash
-
-# Renderから export
-pg_dump $RENDER_DATABASE_URL > nokosu_backup.sql
-
-# EC2のPostgreSQLに import
-psql $EC2_DATABASE_URL < nokosu_backup.sql
-コードは一切変更不要（接続URLを環境変数で切り替えるだけ）。
