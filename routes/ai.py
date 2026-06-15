@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from models.database import db, Log, AiContext
-from services.claude_service import ask_context_questions, find_similar_and_suggest
+from services.claude_service import ask_context_questions, find_similar_and_suggest, find_similar_logs
 
 ai_bp = Blueprint("ai", __name__)
 
@@ -83,3 +83,50 @@ def get_ai_contexts(log_id):
     )
     return jsonify([c.to_dict() for c in contexts])
 
+
+
+@ai_bp.route("/api/ai/similar", methods=["POST"])
+def get_similar():
+    """
+    新規保存後バックグラウンドで呼ばれる。
+    類似ログIDのリストを返す（フロントがバッジ表示に使う）。
+    """
+    data    = request.get_json()
+    log_id  = data.get("log_id")
+    content = (data.get("content") or "").strip()
+    tag     = data.get("tag", "memo")
+
+    if not content:
+        return jsonify({"similar": []}), 200
+
+    # 自分自身を除いた過去ログ
+    past_logs = (
+        db.session.query(Log)
+        .filter(Log.id != log_id)
+        .order_by(Log.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    past_list = [l.to_dict() for l in past_logs]
+
+    try:
+        similar = find_similar_logs(content, tag, past_list)
+        # log_idのai_contextにsimilarを保存（次にカードを開いたとき取得可能に）
+        if log_id and similar:
+            from models.database import AiContext
+            ctx = db.session.query(AiContext).filter(
+                AiContext.log_id == log_id,
+                AiContext.suggestion.is_(None),
+            ).order_by(AiContext.created_at.desc()).first()
+            # suggestion フィールドに類似結果をJSON保存
+            import json as _json
+            if ctx:
+                ctx.suggestion = _json.dumps(similar, ensure_ascii=False)
+            else:
+                ctx = AiContext(log_id=log_id, suggestion=_json.dumps(similar, ensure_ascii=False))
+                db.session.add(ctx)
+            db.session.commit()
+
+        return jsonify({"similar": similar})
+    except Exception as e:
+        return jsonify({"similar": [], "error": str(e)}), 200  # バックグラウンドなので200で返す

@@ -81,3 +81,44 @@ def find_similar_and_suggest(content: str, tag: str, answer: str, past_logs: lis
     return message.content[0].text
 
 
+
+
+def find_similar_logs(content: str, tag: str, past_logs: list) -> list[dict]:
+    """
+    新規保存時バックグラウンドで呼ぶ。
+    類似ログがあればそのIDとスコア・理由を返す。
+    なければ空リストを返す。
+    """
+    if not past_logs:
+        return []
+
+    past_text = "\n".join([
+        f"[id={l['id']}][{l['tag']}] {l['content'][:80]}" for l in past_logs[:30]
+    ])
+
+    client = anthropic.Anthropic(api_key=get_api_key())
+    message = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=400,
+        system=(
+            "あなたは開発者の知識管理を助けるアシスタントです。\n"
+            "新しいメモと過去のログを比較し、関連性が高いものを最大3件選んでください。\n"
+            "必ず以下のJSON形式のみで返してください（前置き・説明不要）：\n"
+            '[{"id": <log_id>, "reason": "<関連理由を20字以内>"}]\n'
+            "関連性が高いものがなければ空配列 [] を返してください。"
+        ),
+        messages=[{
+            "role": "user",
+            "content": (
+                f"【新しいメモ】タグ: {tag}\n{content}\n\n"
+                f"【過去のログ】\n{past_text}"
+            )
+        }],
+    )
+
+    import json as _json
+    try:
+        raw = message.content[0].text.strip()
+        return _json.loads(raw)
+    except Exception:
+        return []

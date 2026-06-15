@@ -20,6 +20,8 @@
     @keyframes pulse-dot { 0%,80%,100%{opacity:0.2} 40%{opacity:1} }
     .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#6b7280; margin:0 2px; animation: pulse-dot 1.2s infinite; }
     .dot:nth-child(2){animation-delay:.2s} .dot:nth-child(3){animation-delay:.4s}
+    .similar-badge { display:none; }
+    .similar-badge.visible { display:inline-flex; align-items:center; }
   </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
@@ -215,6 +217,10 @@
       lastSaved.ai_context_id = data.ai_context_id;
       aiAnswerArea.classList.remove("hidden");
       document.getElementById("ai-answer").focus();
+
+      // バックグラウンドで類似ログ分析（awaitしない）
+      analyzeSimilarInBackground(logId, content, tag);
+
     } catch (e) {
       aiLoading.classList.add("hidden");
       aiArea.classList.add("hidden");
@@ -317,12 +323,44 @@
                 class="status-${log.status} text-xs px-2 py-0.5 rounded-full font-medium cursor-pointer hover:opacity-80 transition"
                 title="クリックで次のステータスへ">${log.status}</button>` : ''}
               ${projectBadge}
+              <span class="similar-badge text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full cursor-pointer hover:bg-yellow-200"
+                id="similar-badge-${log.id}" onclick="toggleRelations(${log.id})" title="類似ログの提案があります">💡 類似あり</span>
               <span class="text-xs text-gray-400 ml-auto">${date}</span>
             </div>
           </div>
           <!-- AI履歴エリア（初期非表示） -->
           <div id="ai-history-${log.id}" class="hidden mt-2 space-y-2 border-t border-gray-100 pt-2">
             <p class="text-xs text-gray-400">読み込み中...</p>
+          </div>
+          <!-- 関連ログエリア（初期非表示） -->
+          <div id="relations-area-${log.id}" class="hidden mt-2 border-t border-gray-100 pt-3 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">🔗 関連ログ</span>
+              <button onclick="showRelationForm(${log.id})"
+                class="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded hover:bg-indigo-100">＋ 関連ログを作成</button>
+            </div>
+            <div id="relations-list-${log.id}" class="space-y-1"></div>
+            <!-- 関連ログ作成フォーム（初期非表示） -->
+            <div id="relation-form-${log.id}" class="hidden mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
+              <div class="flex gap-2">
+                <select id="rel-tag-${log.id}" class="text-xs border border-gray-300 rounded px-2 py-1">
+                  <option value="memo">📝 memo</option>
+                  <option value="idea">💡 idea</option>
+                  <option value="error">🐛 error</option>
+                </select>
+                <input id="rel-project-${log.id}" type="text" placeholder="プロジェクト（任意）"
+                  class="text-xs border border-gray-300 rounded px-2 py-1 flex-1" value="${esc(log.project)}">
+              </div>
+              <textarea id="rel-content-${log.id}" rows="2" placeholder="関連ログの内容..."
+                class="w-full text-sm border border-gray-300 rounded px-3 py-2 resize-none focus:outline-none"></textarea>
+              <input id="rel-note-${log.id}" type="text" placeholder="関連メモ（任意）例：原因ログ、参考アイデア..."
+                class="w-full text-xs border border-gray-300 rounded px-2 py-1">
+              <div class="flex gap-2 justify-end">
+                <button onclick="hideRelationForm(${log.id})" class="text-xs text-gray-400 hover:text-gray-600">キャンセル</button>
+                <button onclick="saveRelation(${log.id})"
+                  class="text-xs bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700">保存して紐付け</button>
+              </div>
+            </div>
           </div>
           <!-- 編集モード（初期非表示） -->
           <div id="edit-${log.id}" class="hidden space-y-2">
@@ -486,6 +524,110 @@
   document.getElementById("ai-answer").addEventListener("keydown", e => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submitAnswer();
   });
+
+  // ---- 関連ログ ----
+  async function toggleRelations(logId) {
+    const area = document.getElementById(`relations-area-${logId}`);
+    if (!area.classList.contains("hidden")) {
+      area.classList.add("hidden");
+      return;
+    }
+    area.classList.remove("hidden");
+    await loadRelations(logId);
+  }
+
+  async function loadRelations(logId) {
+    const list = document.getElementById(`relations-list-${logId}`);
+    list.innerHTML = '<p class="text-xs text-gray-400">読み込み中...</p>';
+
+    const res  = await fetch(`/api/logs/${logId}/relations`);
+    const data = await res.json();
+
+    if (!data.length) {
+      list.innerHTML = '<p class="text-xs text-gray-400">関連ログはまだありません</p>';
+      return;
+    }
+    list.innerHTML = data.map(r => {
+      const l   = r.related_log;
+      const utc = new Date(l.created_at);
+      const jst = new Date(utc.getTime() + 9 * 60 * 60 * 1000);
+      const date = jst.toLocaleString("ja-JP", { month:"numeric", day:"numeric", hour:"2-digit", minute:"2-digit" });
+      const tagClass = { error:"tag-error", idea:"tag-idea", memo:"tag-memo" }[l.tag] || "";
+      return `
+        <div class="flex items-start gap-2 p-2 bg-white rounded border border-gray-100 group">
+          <span class="${tagClass} text-xs px-1.5 py-0.5 rounded-full font-medium shrink-0">${l.tag}</span>
+          <div class="flex-1 min-w-0">
+            <p class="text-xs text-gray-700 whitespace-pre-wrap">${esc(l.content)}</p>
+            ${r.note ? `<p class="text-xs text-indigo-400 mt-0.5">📎 ${esc(r.note)}</p>` : ""}
+            <p class="text-xs text-gray-400 mt-0.5">${date}</p>
+          </div>
+          <button onclick="deleteRelation(${logId}, ${r.relation_id})"
+            class="text-gray-200 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100 shrink-0 transition">✕</button>
+        </div>`;
+    }).join("");
+  }
+
+  function showRelationForm(logId) {
+    document.getElementById(`relation-form-${logId}`).classList.remove("hidden");
+    document.getElementById(`rel-content-${logId}`).focus();
+  }
+
+  function hideRelationForm(logId) {
+    document.getElementById(`relation-form-${logId}`).classList.add("hidden");
+    document.getElementById(`rel-content-${logId}`).value = "";
+    document.getElementById(`rel-note-${logId}`).value = "";
+  }
+
+  async function saveRelation(logId) {
+    const content = document.getElementById(`rel-content-${logId}`).value.trim();
+    const tag     = document.getElementById(`rel-tag-${logId}`).value;
+    const project = document.getElementById(`rel-project-${logId}`).value.trim();
+    const note    = document.getElementById(`rel-note-${logId}`).value.trim();
+
+    if (!content) { alert("内容を入力してください"); return; }
+
+    const res = await fetch(`/api/logs/${logId}/relations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content, tag, project, note }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      alert("エラー: " + (err.error || "不明"));
+      return;
+    }
+
+    hideRelationForm(logId);
+    await loadRelations(logId);
+    showToast("関連ログを保存しました ✓");
+    loadLogs(); // 一覧も更新
+  }
+
+  async function deleteRelation(logId, relationId) {
+    if (!confirm("この関連付けを削除しますか？（ログ自体は残ります）")) return;
+    await fetch(`/api/logs/${logId}/relations/${relationId}`, { method: "DELETE" });
+    await loadRelations(logId);
+  }
+
+  // ---- 類似ログ バックグラウンド分析 ----
+  async function analyzeSimilarInBackground(logId, content, tag) {
+    try {
+      const res  = await fetch("/api/ai/similar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ log_id: logId, content, tag }),
+      });
+      const data = await res.json();
+      if (data.similar && data.similar.length > 0) {
+        // 保存直後のカードにバッジを表示
+        const badge = document.getElementById(`similar-badge-${logId}`);
+        if (badge) badge.classList.add("visible");
+      }
+    } catch (e) {
+      // バックグラウンドなのでエラーは無視
+    }
+  }
 </script>
 </body>
 </html>

@@ -1,57 +1,74 @@
 """
-DBマイグレーション: statusカラムの追加
-実行方法:
-  ローカル: python migrate.py
-  EC2:      sudo /opt/nokosu/.venv/bin/python /opt/nokosu/migrate.py
+マイグレーションスクリプト
+実行: python migrate.py
 """
 import sqlite3
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
+DB_PATH = os.environ.get("DB_PATH") or os.path.join(
+    os.path.dirname(__file__), "instance", "nokosu.db"
+)
+# /opt/nokosu/data 配下の場合も考慮
+if not os.path.exists(DB_PATH):
+    DB_PATH = "/opt/nokosu/data/nokosu.db"
 
-db_url = os.environ.get("DATABASE_URL", "sqlite:///nokosu.db")
+print(f"DB: {DB_PATH}")
 
-# sqlite:/// (相対) と sqlite://// (絶対) どちらにも対応
-if db_url.startswith("sqlite:////"):
-    db_path = "/" + db_url[len("sqlite:////"):]
-elif db_url.startswith("sqlite:///"):
-    # 相対パスの場合はinstance/配下を探す
-    rel = db_url[len("sqlite:///"):]
-    db_path = os.path.join(os.path.dirname(__file__), "instance", rel)
-else:
-    db_path = db_url
+conn = sqlite3.connect(DB_PATH)
+cur  = conn.cursor()
 
-print(f"DB: {db_path}")
+# ── 既存マイグレーション（冪等） ──────────────────────────────
 
-conn = sqlite3.connect(db_path)
-cur = conn.cursor()
-
+# statusカラム
 cur.execute("PRAGMA table_info(logs)")
 columns = [row[1] for row in cur.fetchall()]
-
 if "status" not in columns:
     cur.execute("ALTER TABLE logs ADD COLUMN status TEXT NOT NULL DEFAULT '検討中'")
-    conn.commit()
     print("✅ statusカラムを追加しました")
 else:
     print("ℹ️  statusカラムは既に存在します")
 
-conn.close()
+# ai_contextsテーブル
+cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ai_contexts'")
+if not cur.fetchone():
+    cur.execute("""
+        CREATE TABLE ai_contexts (
+            id INTEGER NOT NULL,
+            log_id INTEGER NOT NULL,
+            question TEXT,
+            answer TEXT,
+            suggestion TEXT,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            FOREIGN KEY(log_id) REFERENCES logs (id)
+        )
+    """)
+    print("✅ ai_contextsテーブルを作成しました")
+else:
+    print("ℹ️  ai_contextsテーブルは既に存在します")
 
-# ai_contextsテーブルを追加
-conn2 = sqlite3.connect(db_path)
-cur2 = conn2.cursor()
-cur2.execute("""
-    CREATE TABLE IF NOT EXISTS ai_contexts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        log_id INTEGER NOT NULL REFERENCES logs(id),
-        question TEXT,
-        answer TEXT,
-        suggestion TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-""")
-conn2.commit()
-print("✅ ai_contextsテーブルを確認/作成しました")
-conn2.close()
+# ── 新規マイグレーション ──────────────────────────────────────
+
+# log_relationsテーブル
+cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='log_relations'")
+if not cur.fetchone():
+    cur.execute("""
+        CREATE TABLE log_relations (
+            id INTEGER NOT NULL,
+            log_id INTEGER NOT NULL,
+            related_log_id INTEGER NOT NULL,
+            note VARCHAR(200) DEFAULT '',
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            FOREIGN KEY(log_id) REFERENCES logs (id),
+            FOREIGN KEY(related_log_id) REFERENCES logs (id),
+            UNIQUE (log_id, related_log_id)
+        )
+    """)
+    print("✅ log_relationsテーブルを作成しました")
+else:
+    print("ℹ️  log_relationsテーブルは既に存在します")
+
+conn.commit()
+conn.close()
+print("✅ マイグレーション完了")

@@ -20,6 +20,21 @@ class Log(db.Model):
 
     ai_contexts = db.relationship("AiContext", backref="log", cascade="all, delete-orphan")
 
+    # 関連ログ（このログが「元」になるもの）
+    relations_as_source = db.relationship(
+        "LogRelation",
+        foreign_keys="LogRelation.log_id",
+        backref="source_log",
+        cascade="all, delete-orphan",
+    )
+    # 関連ログ（このログが「先」になるもの）
+    relations_as_target = db.relationship(
+        "LogRelation",
+        foreign_keys="LogRelation.related_log_id",
+        backref="target_log",
+        cascade="all, delete-orphan",
+    )
+
     def to_dict(self):
         return {
             "id":         self.id,
@@ -51,3 +66,28 @@ class AiContext(db.Model):
             "suggestion": self.suggestion,
             "created_at": self.created_at.isoformat(),
         }
+
+
+class LogRelation(db.Model):
+    """ログ同士の関連付け（双方向）"""
+    __tablename__ = "log_relations"
+
+    id             = db.Column(db.Integer, primary_key=True)
+    log_id         = db.Column(db.Integer, db.ForeignKey("logs.id"), nullable=False)
+    related_log_id = db.Column(db.Integer, db.ForeignKey("logs.id"), nullable=False)
+    note           = db.Column(db.String(200), default="")   # 関連の補足メモ（任意）
+    created_at     = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        db.UniqueConstraint("log_id", "related_log_id", name="uq_log_relation"),
+    )
+
+    def to_dict(self):
+        return {
+            "id":             self.id,
+            "log_id":         self.log_id,
+            "related_log_id": self.related_log_id,
+            "note":           self.note,
+            "created_at":     self.created_at.isoformat(),
+        }
+
