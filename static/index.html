@@ -14,6 +14,9 @@
     textarea:focus, input:focus { outline: none; box-shadow: 0 0 0 2px #93c5fd; }
     #toast { transition: opacity 0.3s; }
     .ai-bubble { background: linear-gradient(135deg, #eff6ff, #f0fdf4); }
+    .status-検討中 { background:#f3f4f6; color:#6b7280; }
+    .status-やる   { background:#dbeafe; color:#2563eb; }
+    .status-完了   { background:#dcfce7; color:#16a34a; }
     @keyframes pulse-dot { 0%,80%,100%{opacity:0.2} 40%{opacity:1} }
     .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#6b7280; margin:0 2px; animation: pulse-dot 1.2s infinite; }
     .dot:nth-child(2){animation-delay:.2s} .dot:nth-child(3){animation-delay:.4s}
@@ -168,24 +171,25 @@
     if (!content) return;
 
     // 保存
-    await fetch("/api/logs", {
+    const res = await fetch("/api/logs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content, tag: currentTag, project })
     });
 
-    lastSaved = { content, tag: currentTag, project };
+    const saved = await res.json();
+    lastSaved = { id: saved.id, content, tag: currentTag, project };
     document.getElementById("input-content").value = "";
     showToast("残しました ✓");
     loadLogs();
     fetchProjects();
 
     // AI質問フローを開始
-    startAIFlow(content, currentTag);
+    startAIFlow(saved.id, content, currentTag);
   }
 
   // ---- AI Flow ----
-  async function startAIFlow(content, tag) {
+  async function startAIFlow(logId, content, tag) {
     const aiArea = document.getElementById("ai-area");
     const aiQuestion = document.getElementById("ai-question");
     const aiLoading = document.getElementById("ai-loading");
@@ -203,11 +207,12 @@
       const res = await fetch("/api/ai/question", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, tag })
+        body: JSON.stringify({ log_id: logId, content, tag })
       });
       const data = await res.json();
       aiLoading.classList.add("hidden");
       aiQuestion.textContent = data.question || "追加情報を教えてください。";
+      lastSaved.ai_context_id = data.ai_context_id;
       aiAnswerArea.classList.remove("hidden");
       document.getElementById("ai-answer").focus();
     } catch (e) {
@@ -233,6 +238,8 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          log_id: lastSaved.id,
+          ai_context_id: lastSaved.ai_context_id,
           content: lastSaved.content,
           tag: lastSaved.tag,
           answer
@@ -284,7 +291,9 @@
     empty.classList.add("hidden");
 
     list.innerHTML = logs.map(log => {
-      const date = new Date(log.created_at).toLocaleString("ja-JP", {
+      const utc = new Date(log.created_at);
+      const jst = new Date(utc.getTime() + 9 * 60 * 60 * 1000);
+      const date = jst.toLocaleString("ja-JP", {
         month:"numeric", day:"numeric", hour:"2-digit", minute:"2-digit"
       });
       const projectBadge = log.project
@@ -297,15 +306,23 @@
             <div class="flex items-start justify-between gap-2">
               <p class="text-sm text-gray-800 whitespace-pre-wrap flex-1">${esc(log.content)}</p>
               <div class="flex gap-1 flex-shrink-0">
+                <button onclick="toggleAiHistory(${log.id})" class="text-gray-300 hover:text-purple-400 text-sm px-1" title="AI履歴">🤖</button>
                 <button onclick="startEdit(${log.id})" class="text-gray-300 hover:text-blue-400 text-sm px-1" title="編集">✎</button>
                 <button onclick="deleteLog(${log.id})" class="text-gray-300 hover:text-red-400 text-lg leading-none" title="削除">×</button>
               </div>
             </div>
             <div class="flex items-center gap-2 flex-wrap mt-2">
               <span class="tag-${log.tag} text-xs px-2 py-0.5 rounded-full font-medium">${log.tag}</span>
+              ${log.tag === 'idea' ? `<button onclick="cycleStatus(${log.id})" id="status-${log.id}"
+                class="status-${log.status} text-xs px-2 py-0.5 rounded-full font-medium cursor-pointer hover:opacity-80 transition"
+                title="クリックで次のステータスへ">${log.status}</button>` : ''}
               ${projectBadge}
               <span class="text-xs text-gray-400 ml-auto">${date}</span>
             </div>
+          </div>
+          <!-- AI履歴エリア（初期非表示） -->
+          <div id="ai-history-${log.id}" class="hidden mt-2 space-y-2 border-t border-gray-100 pt-2">
+            <p class="text-xs text-gray-400">読み込み中...</p>
           </div>
           <!-- 編集モード（初期非表示） -->
           <div id="edit-${log.id}" class="hidden space-y-2">
@@ -346,6 +363,33 @@
     document.getElementById(`edit-btn-${tag}-${id}`).classList.remove("opacity-40");
   }
 
+  // ---- AI履歴 ----
+  async function toggleAiHistory(id) {
+    const area = document.getElementById(`ai-history-${id}`);
+    if (!area.classList.contains("hidden")) {
+      area.classList.add("hidden");
+      return;
+    }
+    area.classList.remove("hidden");
+    area.innerHTML = '<p class="text-xs text-gray-400">読み込み中...</p>';
+
+    const res = await fetch(`/api/logs/${id}/ai_contexts`);
+    const contexts = await res.json();
+
+    if (contexts.length === 0) {
+      area.innerHTML = '<p class="text-xs text-gray-400">AI会話の記録はありません</p>';
+      return;
+    }
+
+    area.innerHTML = contexts.map(ctx => `
+      <div class="space-y-1 text-xs">
+        ${ctx.question ? `<div class="flex gap-1"><span class="text-purple-400">🤖</span><span class="text-gray-600 whitespace-pre-wrap">${esc(ctx.question)}</span></div>` : ''}
+        ${ctx.answer   ? `<div class="flex gap-1 pl-4"><span class="text-gray-400">💬</span><span class="text-gray-600 whitespace-pre-wrap">${esc(ctx.answer)}</span></div>` : ''}
+        ${ctx.suggestion ? `<div class="flex gap-1"><span class="text-yellow-500">💡</span><span class="text-gray-600 whitespace-pre-wrap">${esc(ctx.suggestion)}</span></div>` : ''}
+      </div>
+    `).join('<hr class="border-gray-100 my-2">');
+  }
+
   function startEdit(id) {
     document.getElementById(`view-${id}`).classList.add("hidden");
     document.getElementById(`edit-${id}`).classList.remove("hidden");
@@ -372,6 +416,17 @@
     showToast("更新しました ✓");
     loadLogs();
     fetchProjects();
+  }
+
+  // ---- Status cycle（ideaタグ用）----
+  async function cycleStatus(id) {
+    const res = await fetch(`/api/logs/${id}/status`, { method: "PATCH" });
+    const log = await res.json();
+    const btn = document.getElementById(`status-${id}`);
+    if (btn) {
+      btn.textContent = log.status;
+      btn.className = `status-${log.status} text-xs px-2 py-0.5 rounded-full font-medium cursor-pointer hover:opacity-80 transition`;
+    }
   }
 
   // ---- Delete ----

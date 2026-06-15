@@ -150,15 +150,22 @@ class NokosuStack(Stack):
             ]
         )
 
+        # Elastic IP（固定IP）
+        eip = ec2.CfnEIP(self, "NokosuEIP")
+        ec2.CfnEIPAssociation(
+            self, "NokosuEIPAssociation",
+            instance_id=instance.instance_id,
+            eip=eip.ref,
+        )
+
         # 出力
         CfnOutput(
             self, "NokosuURL",
-            value=f"http://{instance.instance_public_ip}",
-            description="Nokosu App URL",
+            value=f"http://{eip.ref}",
+            description="Nokosu App URL (固定IP)",
         )
         CfnOutput(
             self, "InstanceId",
             value=instance.instance_id,
             description="EC2 Instance ID (for SSM connection)",
         )
-

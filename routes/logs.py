@@ -14,14 +14,12 @@ def get_logs():
 
     if tag and tag in Log.VALID_TAGS:
         query = query.filter(Log.tag == tag)
-
     if project:
         query = query.filter(Log.project == project)
-    
     if q:
         query = query.filter(Log.content.ilike(f"%{q}%"))
 
-    logs = query.order_by(Log.created_at.desc()).limit(200).all()
+    logs = query.order_by(Log.created_at.desc()).limit(10).all()
     return jsonify([l.to_dict() for l in logs])
 
 
@@ -35,7 +33,6 @@ def create_log():
 
     if not content:
         return jsonify({"error": "content is required"}), 400
-    
     if tag not in Log.VALID_TAGS:
         return jsonify({"error": f"tag must be one of {Log.VALID_TAGS}"}), 400
 
@@ -76,7 +73,6 @@ def update_log(log_id):
 
     if not content:
         return jsonify({"error": "content is required"}), 400
-    
     if tag not in Log.VALID_TAGS:
         return jsonify({"error": f"tag must be one of {Log.VALID_TAGS}"}), 400
 
@@ -87,3 +83,19 @@ def update_log(log_id):
     db.session.commit()
     return jsonify(log.to_dict())
 
+
+@logs_bp.route("/api/logs/<int:log_id>/status", methods=["PATCH"])
+def update_status(log_id):
+    """ideaタグのステータスをワンクリックで次に進める"""
+    log = db.session.get(Log, log_id)
+    if not log:
+        return jsonify({"error": "not found"}), 404
+
+    cycle = ["検討中", "やる", "完了"]
+    current = log.status if log.status in cycle else "検討中"
+    next_status = cycle[(cycle.index(current) + 1) % len(cycle)]
+
+    log.status     = next_status
+    log.updated_at = datetime.now(timezone.utc)
+    db.session.commit()
+    return jsonify(log.to_dict())
