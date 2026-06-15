@@ -2,7 +2,7 @@
 
 > 開発中に出会うエラー・アイデア・メモを、その瞬間に残しておくための個人用ナレッジツール。
 
-![Phase](https://img.shields.io/badge/Phase-2-blue) ![Stack](https://img.shields.io/badge/Stack-Flask%20%2B%20SQLite-green) ![Deploy](https://img.shields.io/badge/Deploy-AWS%20EC2-orange)
+![Phase](https://img.shields.io/badge/Phase-3-blue) ![Stack](https://img.shields.io/badge/Stack-Flask%20%2B%20SQLite-green) ![Deploy](https://img.shields.io/badge/Deploy-AWS%20EC2-orange)
 
 ---
 
@@ -22,17 +22,20 @@
 - **3種類のタグ**：`error` / `idea` / `memo`
 - **プロジェクト**：フリーテキストで分類、サジェスト対応
 - **検索**：キーワード・プロジェクト・タグで絞り込み
-- **一覧表示**：直近200件、タブ切り替え
+- **一覧表示**：直近10件、タブ切り替え
 
 ### フェーズ2（実装済み）
 - **AI文脈質問**：メモ保存後にClaudeが1〜2問の深掘り質問
 - **類似ログ提案**：回答をもとに過去の関連メモと対応策を提案
 - タグに関わらず全種類（error/idea/memo）でAI対応
 
-### フェーズ3（予定）
-- ideaタグのステータス管理（検討中 / やる / 完了）
-- メモの編集・更新
-- 関連ログの手動紐付け → AI提案へ
+### フェーズ3（実装済み）
+- **ideaステータス管理**：`検討中` / `やる` / `完了` をワンクリックで切り替え
+- **ログ編集**：内容・タグ・プロジェクトをインライン編集
+- **日本時間表示**：UTC→JSTに自動変換
+- **関連ログの紐付け**：カードから新規ログを作成して紐付け、双方向で表示・削除
+- **バックグラウンド類似分析**：保存時にAIが過去ログを分析し、類似ログがあれば 💡 類似あり バッジで通知
+- **🔗 関連あり バッジ**：関連ログが存在するカードを一目で識別
 
 ---
 
@@ -55,13 +58,13 @@
 nokosu/
 ├── app.py                  # Flaskエントリポイント
 ├── config.py               # 設定（DB URL等）
+├── migrate.py              # DBマイグレーション
 ├── requirements.txt
-├── .env.example
 ├── models/
-│   └── database.py         # SQLAlchemyモデル（Logテーブル）
+│   └── database.py         # SQLAlchemyモデル（Log / AiContext / LogRelation）
 ├── routes/
-│   ├── logs.py             # /api/logs CRUD
-│   └── ai.py               # /api/ai/question, /api/ai/suggest
+│   ├── logs.py             # /api/logs CRUD + 関連ログエンドポイント
+│   └── ai.py               # /api/ai/question, suggest, similar
 ├── services/
 │   └── claude_service.py   # Claude API呼び出し
 ├── static/
@@ -69,6 +72,16 @@ nokosu/
 └── cdk/                    # AWS CDK（EC2デプロイ）
     └── cdk/
         └── nokosu_stack.py
+```
+
+---
+
+## DBスキーマ
+
+```
+logs            # メインのログ
+ai_contexts     # AI質問・回答・提案の履歴（logsに紐付き）
+log_relations   # ログ同士の関連付け（双方向、logsに紐付き）
 ```
 
 ---
@@ -92,7 +105,10 @@ python -m pip install gunicorn boto3 anthropic
 cp .env.example .env
 # .envを編集：ANTHROPIC_API_KEY=sk-ant-xxxxx を追加
 
-# 5. 起動
+# 5. DBマイグレーション（初回・更新時）
+python migrate.py
+
+# 6. 起動
 python app.py
 # → http://localhost:5001
 ```
@@ -124,7 +140,8 @@ aws ssm start-session --target <InstanceId>
 sudo journalctl -u nokosu -n 50 --no-pager
 
 # アプリ更新
-cd /opt/nokosu && git pull
+sudo git -C /opt/nokosu pull
+sudo /opt/nokosu/.venv/bin/python /opt/nokosu/migrate.py
 sudo systemctl restart nokosu
 ```
 
@@ -136,7 +153,9 @@ git add . && git commit -m "feat: xxx" && git push
 
 # EC2側で反映
 aws ssm start-session --target <InstanceId>
-cd /opt/nokosu && git pull && sudo systemctl restart nokosu
+sudo git -C /opt/nokosu pull
+sudo /opt/nokosu/.venv/bin/python /opt/nokosu/migrate.py
+sudo systemctl restart nokosu
 ```
 
 ---
@@ -145,10 +164,9 @@ cd /opt/nokosu && git pull && sudo systemctl restart nokosu
 
 | 変数名 | 説明 | ローカル | EC2 |
 |---|---|---|---|
-| `DATABASE_URL` | SQLite or PostgreSQL URL | `sqlite:///nokosu.db` | `sqlite:////opt/nokosu/data/nokosu.db` |
+| `DATABASE_URL` | SQLite URL | `sqlite:///nokosu.db` | `sqlite:////opt/nokosu/data/nokosu.db` |
 | `SECRET_KEY` | Flaskセッションキー | 任意の文字列 | 自動生成 |
 | `ANTHROPIC_API_KEY` | Claude APIキー（ローカル用） | `.envに記載` | Secrets Manager経由 |
 | `ANTHROPIC_SECRET_NAME` | Secrets Manager シークレット名 | 不要 | `fx-diary/anthropic-api-key` |
 
 ---
-

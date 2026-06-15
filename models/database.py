@@ -36,14 +36,16 @@ class Log(db.Model):
     )
 
     def to_dict(self):
+        has_relations = bool(self.relations_as_source or self.relations_as_target)
         return {
-            "id":         self.id,
-            "content":    self.content,
-            "tag":        self.tag,
-            "project":    self.project,
-            "status":     self.status,
-            "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat(),
+            "id":            self.id,
+            "content":       self.content,
+            "tag":           self.tag,
+            "project":       self.project,
+            "status":        self.status,
+            "has_relations": has_relations,
+            "created_at":    self.created_at.isoformat(),
+            "updated_at":    self.updated_at.isoformat(),
         }
 
 
@@ -75,7 +77,7 @@ class LogRelation(db.Model):
     id             = db.Column(db.Integer, primary_key=True)
     log_id         = db.Column(db.Integer, db.ForeignKey("logs.id"), nullable=False)
     related_log_id = db.Column(db.Integer, db.ForeignKey("logs.id"), nullable=False)
-    note           = db.Column(db.String(200), default="")   # 関連の補足メモ（任意）
+    note           = db.Column(db.String(200), default="")
     created_at     = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (

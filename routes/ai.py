@@ -111,6 +111,8 @@ def get_similar():
 
     try:
         similar = find_similar_logs(content, tag, past_list)
+        #AI応答のログ確認
+        print("similar result:", similar)
         # log_idのai_contextにsimilarを保存（次にカードを開いたとき取得可能に）
         if log_id and similar:
             from models.database import AiContext
