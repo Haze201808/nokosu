@@ -45,6 +45,20 @@ class NokosuStack(Stack):
             ]
         ))
 
+        # S3権限（DBバックアップのエクスポート/インポート用）
+        role.add_to_policy(iam.PolicyStatement(
+            actions=[
+                "s3:GetObject",
+                "s3:PutObject",
+                "s3:DeleteObject",
+                "s3:ListBucket",
+            ],
+            resources=[
+                "arn:aws:s3:::fxdiarystack-chartbucket871feb42-brlffpq6m4kz",
+                "arn:aws:s3:::fxdiarystack-chartbucket871feb42-brlffpq6m4kz/*",
+            ]
+        ))
+
         # User Data（起動時に自動セットアップ）
         user_data = ec2.UserData.for_linux()
         user_data.add_commands(

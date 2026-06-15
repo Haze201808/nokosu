@@ -291,18 +291,87 @@
         ? `<span class="bg-gray-100 text-gray-500 text-xs px-2 py-0.5 rounded-full">${esc(log.project)}</span>`
         : "";
       return `
-        <div class="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 space-y-2">
-          <div class="flex items-start justify-between gap-2">
-            <p class="text-sm text-gray-800 whitespace-pre-wrap flex-1">${esc(log.content)}</p>
-            <button onclick="deleteLog(${log.id})" class="text-gray-300 hover:text-red-400 text-lg leading-none flex-shrink-0" title="削除">×</button>
+        <div id="log-${log.id}" class="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 space-y-2">
+          <!-- 表示モード -->
+          <div id="view-${log.id}">
+            <div class="flex items-start justify-between gap-2">
+              <p class="text-sm text-gray-800 whitespace-pre-wrap flex-1">${esc(log.content)}</p>
+              <div class="flex gap-1 flex-shrink-0">
+                <button onclick="startEdit(${log.id})" class="text-gray-300 hover:text-blue-400 text-sm px-1" title="編集">✎</button>
+                <button onclick="deleteLog(${log.id})" class="text-gray-300 hover:text-red-400 text-lg leading-none" title="削除">×</button>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap mt-2">
+              <span class="tag-${log.tag} text-xs px-2 py-0.5 rounded-full font-medium">${log.tag}</span>
+              ${projectBadge}
+              <span class="text-xs text-gray-400 ml-auto">${date}</span>
+            </div>
           </div>
-          <div class="flex items-center gap-2 flex-wrap">
-            <span class="tag-${log.tag} text-xs px-2 py-0.5 rounded-full font-medium">${log.tag}</span>
-            ${projectBadge}
-            <span class="text-xs text-gray-400 ml-auto">${date}</span>
+          <!-- 編集モード（初期非表示） -->
+          <div id="edit-${log.id}" class="hidden space-y-2">
+            <textarea id="edit-content-${log.id}" rows="3"
+              class="w-full text-sm text-gray-800 border border-blue-200 rounded-lg px-3 py-2 resize-none"
+            >${esc(log.content)}</textarea>
+            <div class="flex gap-2 flex-wrap items-center">
+              <div class="flex gap-1">
+                ${['memo','error','idea'].map(t => `
+                <button id="edit-btn-${t}-${log.id}" onclick="setEditTag(${log.id},'${t}')"
+                  class="edit-tag-btn-${log.id} px-3 py-1 rounded-full text-xs font-medium border tag-${t} ${log.tag===t?'opacity-100':'opacity-40'}
+                  ${t==='error'?'border-red-200':t==='idea'?'border-yellow-200':'border-blue-200'}">${t}</button>`).join('')}
+              </div>
+              <input id="edit-project-${log.id}" type="text" value="${esc(log.project)}"
+                placeholder="プロジェクト（任意）"
+                class="flex-1 min-w-[120px] text-xs border border-gray-200 rounded-lg px-3 py-1.5"
+              />
+              <div class="flex gap-1 ml-auto">
+                <button onclick="cancelEdit(${log.id})" class="text-xs text-gray-400 hover:text-gray-600 px-3 py-1.5">キャンセル</button>
+                <button onclick="saveEdit(${log.id})"
+                  class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-4 py-1.5 rounded-lg transition">保存</button>
+              </div>
+            </div>
           </div>
         </div>`;
     }).join("");
+
+    // 編集タグの初期状態を設定
+    logs.forEach(log => { currentEditTag[log.id] = log.tag; });
+  }
+
+  // ---- Edit ----
+  const currentEditTag = {};
+
+  function setEditTag(id, tag) {
+    currentEditTag[id] = tag;
+    document.querySelectorAll(`.edit-tag-btn-${id}`).forEach(b => b.classList.add("opacity-40"));
+    document.getElementById(`edit-btn-${tag}-${id}`).classList.remove("opacity-40");
+  }
+
+  function startEdit(id) {
+    document.getElementById(`view-${id}`).classList.add("hidden");
+    document.getElementById(`edit-${id}`).classList.remove("hidden");
+    document.getElementById(`edit-content-${id}`).focus();
+  }
+
+  function cancelEdit(id) {
+    document.getElementById(`edit-${id}`).classList.add("hidden");
+    document.getElementById(`view-${id}`).classList.remove("hidden");
+  }
+
+  async function saveEdit(id) {
+    const content = document.getElementById(`edit-content-${id}`).value.trim();
+    const project = document.getElementById(`edit-project-${id}`).value.trim();
+    const tag     = currentEditTag[id] || "memo";
+    if (!content) return;
+
+    await fetch(`/api/logs/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content, tag, project })
+    });
+
+    showToast("更新しました ✓");
+    loadLogs();
+    fetchProjects();
   }
 
   // ---- Delete ----

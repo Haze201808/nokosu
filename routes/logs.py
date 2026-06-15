@@ -35,7 +35,7 @@ def create_log():
 
     if not content:
         return jsonify({"error": "content is required"}), 400
-
+    
     if tag not in Log.VALID_TAGS:
         return jsonify({"error": f"tag must be one of {Log.VALID_TAGS}"}), 400
 
@@ -50,7 +50,6 @@ def delete_log(log_id):
     log = db.session.get(Log, log_id)
     if not log:
         return jsonify({"error": "not found"}), 404
-    
     db.session.delete(log)
     db.session.commit()
     return jsonify({"deleted": log_id})
@@ -62,4 +61,29 @@ def get_projects():
     rows = db.session.query(Log.project).filter(Log.project != "").distinct().all()
     projects = sorted([r[0] for r in rows])
     return jsonify(projects)
+
+
+@logs_bp.route("/api/logs/<int:log_id>", methods=["PUT"])
+def update_log(log_id):
+    log = db.session.get(Log, log_id)
+    if not log:
+        return jsonify({"error": "not found"}), 404
+
+    data    = request.get_json()
+    content = (data.get("content") or "").strip()
+    tag     = data.get("tag", log.tag)
+    project = (data.get("project") or "").strip()
+
+    if not content:
+        return jsonify({"error": "content is required"}), 400
+    
+    if tag not in Log.VALID_TAGS:
+        return jsonify({"error": f"tag must be one of {Log.VALID_TAGS}"}), 400
+
+    log.content    = content
+    log.tag        = tag
+    log.project    = project
+    log.updated_at = datetime.now(timezone.utc)
+    db.session.commit()
+    return jsonify(log.to_dict())
 
