@@ -3,6 +3,7 @@ from flask_cors import CORS
 from config import Config
 from models.database import db
 from routes.logs import logs_bp
+from routes.ai import ai_bp
 import os
 
 def create_app():
@@ -15,6 +16,7 @@ def create_app():
     db.init_app(app)
 
     app.register_blueprint(logs_bp)
+    app.register_blueprint(ai_bp)
 
     @app.route("/")
     def index():
@@ -29,5 +31,4 @@ app = create_app()
 
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
-
 

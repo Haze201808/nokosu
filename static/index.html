@@ -13,6 +13,10 @@
     .tab-active { border-bottom: 2px solid #2563eb; color:#2563eb; font-weight:600; }
     textarea:focus, input:focus { outline: none; box-shadow: 0 0 0 2px #93c5fd; }
     #toast { transition: opacity 0.3s; }
+    .ai-bubble { background: linear-gradient(135deg, #eff6ff, #f0fdf4); }
+    @keyframes pulse-dot { 0%,80%,100%{opacity:0.2} 40%{opacity:1} }
+    .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#6b7280; margin:0 2px; animation: pulse-dot 1.2s infinite; }
+    .dot:nth-child(2){animation-delay:.2s} .dot:nth-child(3){animation-delay:.4s}
   </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
@@ -34,14 +38,11 @@
     ></textarea>
 
     <div class="flex gap-2 flex-wrap items-center">
-      <!-- タグ選択 -->
       <div class="flex gap-1">
         <button onclick="setTag('memo')"  id="btn-memo"  class="tag-btn px-3 py-1 rounded-full text-xs font-medium border border-blue-200 tag-memo opacity-100">memo</button>
         <button onclick="setTag('error')" id="btn-error" class="tag-btn px-3 py-1 rounded-full text-xs font-medium border border-red-200 tag-error opacity-40">error</button>
         <button onclick="setTag('idea')"  id="btn-idea"  class="tag-btn px-3 py-1 rounded-full text-xs font-medium border border-yellow-200 tag-idea opacity-40">idea</button>
       </div>
-
-      <!-- プロジェクト入力 -->
       <div class="relative flex-1 min-w-[140px]">
         <input id="input-project" type="text" placeholder="プロジェクト（任意）"
           class="w-full text-xs border border-gray-200 rounded-lg px-3 py-1.5"
@@ -49,29 +50,63 @@
           oninput="showProjectSuggests(this.value)"
           onblur="setTimeout(()=>hideSuggests(),150)"
         />
-        <ul id="project-suggests"
-          class="hidden absolute z-20 bg-white border border-gray-200 rounded-lg mt-1 w-full shadow text-xs">
-        </ul>
+        <ul id="project-suggests" class="hidden absolute z-20 bg-white border border-gray-200 rounded-lg mt-1 w-full shadow text-xs"></ul>
       </div>
-
-      <button onclick="saveLog()"
+      <button onclick="saveLog()" id="btn-save"
         class="ml-auto bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition">
         残す
       </button>
     </div>
   </div>
 
-  <!-- タブ + 検索 -->
-  <div class="space-y-3">
-    <div class="flex items-center justify-between">
-      <div class="flex gap-4 border-b border-gray-200 w-full pb-0">
-        <button onclick="setTabFilter('all')"   id="tab-all"   class="tab-btn tab-active   pb-2 text-sm">すべて</button>
-        <button onclick="setTabFilter('memo')"  id="tab-memo"  class="tab-btn text-gray-500 pb-2 text-sm">memo</button>
-        <button onclick="setTabFilter('error')" id="tab-error" class="tab-btn text-gray-500 pb-2 text-sm">error</button>
-        <button onclick="setTabFilter('idea')"  id="tab-idea"  class="tab-btn text-gray-500 pb-2 text-sm">idea</button>
+  <!-- AI対話エリア（保存後に表示） -->
+  <div id="ai-area" class="hidden bg-white rounded-xl shadow-sm border border-blue-100 p-4 space-y-3">
+    <!-- AIの質問 -->
+    <div class="flex gap-2 items-start">
+      <span class="text-lg">🤖</span>
+      <div id="ai-question" class="ai-bubble rounded-xl px-4 py-3 text-sm text-gray-700 flex-1 whitespace-pre-wrap"></div>
+    </div>
+
+    <!-- ローディング -->
+    <div id="ai-loading" class="hidden flex gap-2 items-center pl-8">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    </div>
+
+    <!-- 回答入力 -->
+    <div id="ai-answer-area" class="hidden space-y-2">
+      <textarea id="ai-answer" rows="2"
+        placeholder="回答を入力..."
+        class="w-full text-sm text-gray-800 placeholder-gray-400 border border-blue-200 rounded-lg px-3 py-2 resize-none"
+      ></textarea>
+      <div class="flex gap-2 justify-end">
+        <button onclick="skipAI()" class="text-xs text-gray-400 hover:text-gray-600 px-3 py-1.5">スキップ</button>
+        <button onclick="submitAnswer()"
+          class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-4 py-1.5 rounded-lg transition">
+          送信
+        </button>
       </div>
     </div>
 
+    <!-- AIの提案 -->
+    <div id="ai-suggestion-area" class="hidden space-y-2">
+      <div class="flex gap-2 items-start">
+        <span class="text-lg">💡</span>
+        <div id="ai-suggestion" class="ai-bubble rounded-xl px-4 py-3 text-sm text-gray-700 flex-1 whitespace-pre-wrap"></div>
+      </div>
+      <div class="flex justify-end">
+        <button onclick="closeAI()" class="text-xs text-gray-400 hover:text-gray-600 px-3 py-1.5">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- タブ + 検索 -->
+  <div class="space-y-3">
+    <div class="flex gap-4 border-b border-gray-200 w-full pb-0">
+      <button onclick="setTabFilter('all')"   id="tab-all"   class="tab-btn tab-active pb-2 text-sm">すべて</button>
+      <button onclick="setTabFilter('memo')"  id="tab-memo"  class="tab-btn text-gray-500 pb-2 text-sm">memo</button>
+      <button onclick="setTabFilter('error')" id="tab-error" class="tab-btn text-gray-500 pb-2 text-sm">error</button>
+      <button onclick="setTabFilter('idea')"  id="tab-idea"  class="tab-btn text-gray-500 pb-2 text-sm">idea</button>
+    </div>
     <div class="flex gap-2">
       <input id="search-q" type="text" placeholder="🔍 キーワード検索..."
         class="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5"
@@ -100,6 +135,7 @@
   let currentTabFilter = "all";
   let debounceTimer = null;
   let allProjects = [];
+  let lastSaved = null; // 直前に保存したログ
 
   // ---- Init ----
   loadLogs();
@@ -125,22 +161,99 @@
     loadLogs();
   }
 
-  // ---- Save ----
+  // ---- Save & AI flow ----
   async function saveLog() {
     const content = document.getElementById("input-content").value.trim();
     const project = document.getElementById("input-project").value.trim();
     if (!content) return;
 
+    // 保存
     await fetch("/api/logs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content, tag: currentTag, project })
     });
 
+    lastSaved = { content, tag: currentTag, project };
     document.getElementById("input-content").value = "";
     showToast("残しました ✓");
     loadLogs();
     fetchProjects();
+
+    // AI質問フローを開始
+    startAIFlow(content, currentTag);
+  }
+
+  // ---- AI Flow ----
+  async function startAIFlow(content, tag) {
+    const aiArea = document.getElementById("ai-area");
+    const aiQuestion = document.getElementById("ai-question");
+    const aiLoading = document.getElementById("ai-loading");
+    const aiAnswerArea = document.getElementById("ai-answer-area");
+    const aiSuggestionArea = document.getElementById("ai-suggestion-area");
+
+    // リセット＆表示
+    aiQuestion.textContent = "";
+    aiAnswerArea.classList.add("hidden");
+    aiSuggestionArea.classList.add("hidden");
+    aiArea.classList.remove("hidden");
+    aiLoading.classList.remove("hidden");
+
+    try {
+      const res = await fetch("/api/ai/question", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content, tag })
+      });
+      const data = await res.json();
+      aiLoading.classList.add("hidden");
+      aiQuestion.textContent = data.question || "追加情報を教えてください。";
+      aiAnswerArea.classList.remove("hidden");
+      document.getElementById("ai-answer").focus();
+    } catch (e) {
+      aiLoading.classList.add("hidden");
+      aiArea.classList.add("hidden");
+    }
+  }
+
+  async function submitAnswer() {
+    const answer = document.getElementById("ai-answer").value.trim();
+    if (!answer || !lastSaved) return;
+
+    const aiLoading = document.getElementById("ai-loading");
+    const aiAnswerArea = document.getElementById("ai-answer-area");
+    const aiSuggestionArea = document.getElementById("ai-suggestion-area");
+    const aiSuggestion = document.getElementById("ai-suggestion");
+
+    aiAnswerArea.classList.add("hidden");
+    aiLoading.classList.remove("hidden");
+
+    try {
+      const res = await fetch("/api/ai/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: lastSaved.content,
+          tag: lastSaved.tag,
+          answer
+        })
+      });
+      const data = await res.json();
+      aiLoading.classList.add("hidden");
+      aiSuggestion.textContent = data.suggestion || "";
+      aiSuggestionArea.classList.remove("hidden");
+      document.getElementById("ai-answer").value = "";
+    } catch (e) {
+      aiLoading.classList.add("hidden");
+      aiSuggestionArea.classList.remove("hidden");
+      document.getElementById("ai-suggestion").textContent = "提案の取得に失敗しました。";
+    }
+  }
+
+  function skipAI() { closeAI(); }
+  function closeAI() {
+    document.getElementById("ai-area").classList.add("hidden");
+    document.getElementById("ai-answer").value = "";
   }
 
   // ---- Load ----
@@ -242,9 +355,12 @@
     return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
 
-  // ---- Enter to save ----
+  // ---- Enter shortcuts ----
   document.getElementById("input-content").addEventListener("keydown", e => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) saveLog();
+  });
+  document.getElementById("ai-answer").addEventListener("keydown", e => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submitAnswer();
   });
 </script>
 </body>
