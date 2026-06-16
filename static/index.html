@@ -313,13 +313,14 @@
               <p class="text-sm text-gray-800 whitespace-pre-wrap flex-1">${esc(log.content)}</p>
               <div class="flex gap-1 flex-shrink-0">
                 <button onclick="toggleAiHistory(${log.id})" class="text-gray-300 hover:text-purple-400 text-sm px-1" title="AI履歴">🤖</button>
+                <button onclick="toggleRelations(${log.id})" class="text-gray-300 hover:text-indigo-400 text-sm px-1" title="関連ログ">🔗</button>
                 <button onclick="startEdit(${log.id})" class="text-gray-300 hover:text-blue-400 text-sm px-1" title="編集">✎</button>
                 <button onclick="deleteLog(${log.id})" class="text-gray-300 hover:text-red-400 text-lg leading-none" title="削除">×</button>
               </div>
             </div>
             <div class="flex items-center gap-2 flex-wrap mt-2">
               <span class="tag-${log.tag} text-xs px-2 py-0.5 rounded-full font-medium">${log.tag}</span>
-              ${log.tag === 'idea' ? `<button onclick="cycleStatus(${log.id})" id="status-${log.id}"
+              ${(log.tag === 'idea' || log.tag === 'memo') ? `<button onclick="cycleStatus(${log.id})" id="status-${log.id}"
                 class="status-${log.status} text-xs px-2 py-0.5 rounded-full font-medium cursor-pointer hover:opacity-80 transition"
                 title="クリックで次のステータスへ">${log.status}</button>` : ''}
               ${projectBadge}
@@ -344,23 +345,43 @@
             <div id="relations-list-${log.id}" class="space-y-1"></div>
             <!-- 関連ログ作成フォーム（初期非表示） -->
             <div id="relation-form-${log.id}" class="hidden mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
-              <div class="flex gap-2">
-                <select id="rel-tag-${log.id}" class="text-xs border border-gray-300 rounded px-2 py-1">
-                  <option value="memo">📝 memo</option>
-                  <option value="idea">💡 idea</option>
-                  <option value="error">🐛 error</option>
-                </select>
-                <input id="rel-project-${log.id}" type="text" placeholder="プロジェクト（任意）"
-                  class="text-xs border border-gray-300 rounded px-2 py-1 flex-1" value="${esc(log.project)}">
+              <!-- モード切替タブ -->
+              <div class="flex gap-1 text-xs">
+                <button id="rel-mode-new-${log.id}" onclick="setRelationMode(${log.id}, 'new')"
+                  class="px-3 py-1 rounded font-medium bg-indigo-600 text-white">＋ 新規作成</button>
+                <button id="rel-mode-search-${log.id}" onclick="setRelationMode(${log.id}, 'search')"
+                  class="px-3 py-1 rounded font-medium bg-gray-200 text-gray-600 hover:bg-gray-300">🔍 既存から選ぶ</button>
               </div>
-              <textarea id="rel-content-${log.id}" rows="2" placeholder="関連ログの内容..."
-                class="w-full text-sm border border-gray-300 rounded px-3 py-2 resize-none focus:outline-none"></textarea>
-              <input id="rel-note-${log.id}" type="text" placeholder="関連メモ（任意）例：原因ログ、参考アイデア..."
-                class="w-full text-xs border border-gray-300 rounded px-2 py-1">
-              <div class="flex gap-2 justify-end">
-                <button onclick="hideRelationForm(${log.id})" class="text-xs text-gray-400 hover:text-gray-600">キャンセル</button>
-                <button onclick="saveRelation(${log.id})"
-                  class="text-xs bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700">保存して紐付け</button>
+              <!-- 新規作成パネル -->
+              <div id="rel-panel-new-${log.id}">
+                <div class="flex gap-2 mb-2">
+                  <select id="rel-tag-${log.id}" class="text-xs border border-gray-300 rounded px-2 py-1">
+                    <option value="memo">📝 memo</option>
+                    <option value="idea">💡 idea</option>
+                    <option value="error">🐛 error</option>
+                  </select>
+                  <input id="rel-project-${log.id}" type="text" placeholder="プロジェクト（任意）"
+                    class="text-xs border border-gray-300 rounded px-2 py-1 flex-1" value="${esc(log.project)}">
+                </div>
+                <textarea id="rel-content-${log.id}" rows="2" placeholder="関連ログの内容..."
+                  class="w-full text-sm border border-gray-300 rounded px-3 py-2 resize-none focus:outline-none mb-2"></textarea>
+                <input id="rel-note-${log.id}" type="text" placeholder="関連メモ（任意）例：原因ログ、参考アイデア..."
+                  class="w-full text-xs border border-gray-300 rounded px-2 py-1 mb-2">
+                <div class="flex gap-2 justify-end">
+                  <button onclick="hideRelationForm(${log.id})" class="text-xs text-gray-400 hover:text-gray-600">キャンセル</button>
+                  <button onclick="saveRelation(${log.id})"
+                    class="text-xs bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700">保存して紐付け</button>
+                </div>
+              </div>
+              <!-- 既存検索パネル -->
+              <div id="rel-panel-search-${log.id}" class="hidden">
+                <input id="rel-search-${log.id}" type="text" placeholder="キーワードで検索..."
+                  oninput="searchExistingLogs(${log.id})"
+                  class="w-full text-sm border border-gray-300 rounded px-3 py-2 mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                <div id="rel-search-results-${log.id}" class="space-y-1 max-h-48 overflow-y-auto"></div>
+                <div class="flex justify-end mt-2">
+                  <button onclick="hideRelationForm(${log.id})" class="text-xs text-gray-400 hover:text-gray-600">キャンセル</button>
+                </div>
               </div>
             </div>
           </div>
@@ -577,13 +598,99 @@
 
   function showRelationForm(logId) {
     document.getElementById(`relation-form-${logId}`).classList.remove("hidden");
+    setRelationMode(logId, 'new');
     document.getElementById(`rel-content-${logId}`).focus();
+  }
+
+  function setRelationMode(logId, mode) {
+    const isNew = mode === 'new';
+    document.getElementById(`rel-panel-new-${logId}`).classList.toggle("hidden", !isNew);
+    document.getElementById(`rel-panel-search-${logId}`).classList.toggle("hidden", isNew);
+    document.getElementById(`rel-mode-new-${logId}`).className =
+      `px-3 py-1 rounded font-medium text-xs ${isNew ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`;
+    document.getElementById(`rel-mode-search-${logId}`).className =
+      `px-3 py-1 rounded font-medium text-xs ${!isNew ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`;
+    if (!isNew) {
+      document.getElementById(`rel-search-${logId}`).focus();
+      searchExistingLogs(logId); // 初期は全件表示
+    }
+  }
+
+  async function searchExistingLogs(logId) {
+    const q = document.getElementById(`rel-search-${logId}`).value.trim();
+    const url = q ? `/api/logs?q=${encodeURIComponent(q)}` : `/api/logs`;
+    const res  = await fetch(url);
+    const logs = await res.json();
+    const results = document.getElementById(`rel-search-results-${logId}`);
+
+    // 自分自身と既に紐付き済みのものを除外
+    const relRes = await fetch(`/api/logs/${logId}/relations`);
+    const rels   = await relRes.json();
+    const relatedIds = new Set(rels.map(r => r.related_log.id));
+    relatedIds.add(logId);
+
+    const filtered = logs.filter(l => !relatedIds.has(l.id));
+
+    if (!filtered.length) {
+      results.innerHTML = '<p class="text-xs text-gray-400 py-1">該当するログがありません</p>';
+      return;
+    }
+
+    const tagClass = { error:"tag-error", idea:"tag-idea", memo:"tag-memo" };
+    results.innerHTML = filtered.map(l => {
+      const utc  = new Date(l.created_at);
+      const jst  = new Date(utc.getTime() + 9 * 60 * 60 * 1000);
+      const date = jst.toLocaleString("ja-JP", { month:"numeric", day:"numeric", hour:"2-digit", minute:"2-digit" });
+      return `
+        <div class="flex items-start gap-2 p-2 bg-white rounded border border-gray-100 hover:border-indigo-300 cursor-pointer transition"
+          onclick="linkExistingLog(${logId}, ${l.id})">
+          <span class="${tagClass[l.tag] || ''} text-xs px-1.5 py-0.5 rounded-full font-medium shrink-0">${l.tag}</span>
+          <div class="flex-1 min-w-0">
+            <p class="text-xs text-gray-700 truncate">${esc(l.content)}</p>
+            <p class="text-xs text-gray-400">${date}</p>
+          </div>
+          <span class="text-xs text-indigo-500 shrink-0">紐付け</span>
+        </div>`;
+    }).join("");
+  }
+
+  async function linkExistingLog(logId, relatedLogId) {
+    const res = await fetch(`/api/logs/${logId}/relations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ related_log_id: relatedLogId }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert("エラー: " + (err.error || "不明"));
+      return;
+    }
+    hideRelationForm(logId);
+    await loadRelations(logId);
+    showToast("関連ログを紐付けました ✓");
+    // 🔗バッジをその場で追加
+    const card = document.getElementById(`log-${logId}`);
+    if (card && !card.querySelector('.relation-badge')) {
+      const badgeArea = card.querySelector('.flex.items-center.gap-2.flex-wrap');
+      if (badgeArea) {
+        const badge = document.createElement('span');
+        badge.className = 'relation-badge text-xs bg-indigo-50 text-indigo-500 px-2 py-0.5 rounded-full cursor-pointer hover:bg-indigo-100';
+        badge.setAttribute('onclick', `toggleRelations(${logId})`);
+        badge.title = '関連ログあり';
+        badge.textContent = '🔗 関連あり';
+        badgeArea.prepend(badge);
+      }
+    }
   }
 
   function hideRelationForm(logId) {
     document.getElementById(`relation-form-${logId}`).classList.add("hidden");
     document.getElementById(`rel-content-${logId}`).value = "";
     document.getElementById(`rel-note-${logId}`).value = "";
+    const searchEl = document.getElementById(`rel-search-${logId}`);
+    if (searchEl) searchEl.value = "";
+    const resultsEl = document.getElementById(`rel-search-results-${logId}`);
+    if (resultsEl) resultsEl.innerHTML = "";
   }
 
   async function saveRelation(logId) {

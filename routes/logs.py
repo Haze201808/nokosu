@@ -19,7 +19,9 @@ def get_logs():
     if q:
         query = query.filter(Log.content.ilike(f"%{q}%"))
 
-    logs = query.order_by(Log.created_at.desc()).limit(10).all()
+    # memo/ideaは200件、全件・errorは10件
+    limit = 200 if tag in ("memo", "idea") else 10
+    logs = query.order_by(Log.created_at.desc()).limit(limit).all()
     return jsonify([l.to_dict() for l in logs])
 
 
@@ -86,10 +88,12 @@ def update_log(log_id):
 
 @logs_bp.route("/api/logs/<int:log_id>/status", methods=["PATCH"])
 def update_status(log_id):
-    """ideaタグのステータスをワンクリックで次に進める"""
+    """idea/memoタグのステータスをワンクリックで次に進める"""
     log = db.session.get(Log, log_id)
     if not log:
         return jsonify({"error": "not found"}), 404
+    if log.tag not in Log.STATUS_TAGS:
+        return jsonify({"error": "このタグはステータス管理対象外です"}), 400
 
     cycle = ["検討中", "やる", "完了"]
     current = log.status if log.status in cycle else "検討中"

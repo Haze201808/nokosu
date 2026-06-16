@@ -2,7 +2,7 @@
 
 > 開発中に出会うエラー・アイデア・メモを、その瞬間に残しておくための個人用ナレッジツール。
 
-![Phase](https://img.shields.io/badge/Phase-3-blue) ![Stack](https://img.shields.io/badge/Stack-Flask%20%2B%20SQLite-green) ![Deploy](https://img.shields.io/badge/Deploy-AWS%20EC2-orange)
+![Phase](https://img.shields.io/badge/Phase-4-blue) ![Stack](https://img.shields.io/badge/Stack-Flask%20%2B%20SQLite-green) ![Deploy](https://img.shields.io/badge/Deploy-AWS%20EC2-orange)
 
 ---
 
@@ -36,6 +36,12 @@
 - **関連ログの紐付け**：カードから新規ログを作成して紐付け、双方向で表示・削除
 - **バックグラウンド類似分析**：保存時にAIが過去ログを分析し、類似ログがあれば 💡 類似あり バッジで通知
 - **🔗 関連あり バッジ**：関連ログが存在するカードを一目で識別
+
+### フェーズ4（実装済み）
+- **memoステータス管理**：memoタグにも `検討中` / `やる` / `完了` を追加（ナレッジとして残すか・対応するかを管理）
+- **memo/ideaタブで200件表示**：memoとideaは最大200件表示（errorは10件のまま）
+- **既存ログへの検索紐付け**：関連ログ作成時に「既存から選ぶ」タブでキーワード検索して既存ログと紐付け可能
+- **🔗ボタン常時表示**：全カードの右上に関連ログボタンを常時表示（関連ログがないカードからも操作可能）
 
 ---
 
@@ -141,7 +147,6 @@ sudo journalctl -u nokosu -n 50 --no-pager
 
 # アプリ更新
 sudo git -C /opt/nokosu pull
-sudo /opt/nokosu/.venv/bin/python /opt/nokosu/migrate.py
 sudo systemctl restart nokosu
 ```
 
@@ -154,7 +159,6 @@ git add . && git commit -m "feat: xxx" && git push
 # EC2側で反映
 aws ssm start-session --target <InstanceId>
 sudo git -C /opt/nokosu pull
-sudo /opt/nokosu/.venv/bin/python /opt/nokosu/migrate.py
 sudo systemctl restart nokosu
 ```
 

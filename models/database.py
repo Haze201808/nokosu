@@ -17,6 +17,8 @@ class Log(db.Model):
 
     VALID_TAGS     = {"error", "idea", "memo"}
     VALID_STATUSES = {"検討中", "やる", "完了"}
+    # ステータス管理対象タグ（error以外）
+    STATUS_TAGS    = {"idea", "memo"}
 
     ai_contexts = db.relationship("AiContext", backref="log", cascade="all, delete-orphan")
 
@@ -92,4 +94,3 @@ class LogRelation(db.Model):
             "note":           self.note,
             "created_at":     self.created_at.isoformat(),
         }
-

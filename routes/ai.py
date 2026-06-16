@@ -95,6 +95,7 @@ def get_similar():
     log_id  = data.get("log_id")
     content = (data.get("content") or "").strip()
     tag     = data.get("tag", "memo")
+    print("similar: log_id =", log_id, "content =", content[:20])
 
     if not content:
         return jsonify({"similar": []}), 200
