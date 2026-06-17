@@ -140,7 +140,8 @@
   let debounceTimer = null;
   let allProjects = [];
   let lastSaved = null; // 直前に保存したログ
-  const similarBadgeIds = new Set(); // 類似ありと判定されたlog_idを保持
+  // 類似ありと判定されたlog_id → 種類("duplicate"|"related") を保持
+  const similarBadgeMap = new Map();
 
   // ---- Init ----
   loadLogs();
@@ -326,8 +327,8 @@
               ${projectBadge}
               ${log.has_relations ? `<span class="text-xs bg-indigo-50 text-indigo-500 px-2 py-0.5 rounded-full cursor-pointer hover:bg-indigo-100"
                 onclick="toggleRelations(${log.id})" title="関連ログあり">🔗 関連あり</span>` : ''}
-              <span class="similar-badge text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full cursor-pointer hover:bg-yellow-200"
-                id="similar-badge-${log.id}" onclick="toggleRelations(${log.id})" title="類似ログの提案があります">💡 類似あり</span>
+              <span class="similar-badge text-xs px-2 py-0.5 rounded-full cursor-pointer"
+                id="similar-badge-${log.id}" onclick="toggleRelations(${log.id})" title="AIが見つけた類似ログがあります"></span>
               <span class="text-xs text-gray-400 ml-auto">${date}</span>
             </div>
           </div>
@@ -342,6 +343,7 @@
               <button onclick="showRelationForm(${log.id})"
                 class="text-xs bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded hover:bg-indigo-100">＋ 関連ログを作成</button>
             </div>
+            <div id="ai-suggested-${log.id}" class="space-y-1"></div>
             <div id="relations-list-${log.id}" class="space-y-1"></div>
             <!-- 関連ログ作成フォーム（初期非表示） -->
             <div id="relation-form-${log.id}" class="hidden mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
@@ -415,10 +417,24 @@
     logs.forEach(log => { currentEditTag[log.id] = log.tag; });
 
     // 類似バッジを復元（再描画で消えないように）
-    similarBadgeIds.forEach(id => {
-      const badge = document.getElementById(`similar-badge-${id}`);
-      if (badge) badge.classList.add("visible");
+    similarBadgeMap.forEach((type, id) => {
+      applySimilarBadge(id, type);
     });
+  }
+
+  // ---- 類似バッジの見た目を適用（重複/関連で出し分け）----
+  function applySimilarBadge(logId, type) {
+    const badge = document.getElementById(`similar-badge-${logId}`);
+    if (!badge) return;
+    if (type === "duplicate") {
+      badge.textContent = "🔁 重複";
+      badge.className = "similar-badge visible text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full cursor-pointer hover:bg-orange-200";
+      badge.title = "前にも同じ内容を残しています";
+    } else {
+      badge.textContent = "🔗 関連の気づき";
+      badge.className = "similar-badge visible text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full cursor-pointer hover:bg-yellow-200";
+      badge.title = "関連する過去メモがあります";
+    }
   }
 
   // ---- Edit ----
@@ -562,7 +578,86 @@
       return;
     }
     area.classList.remove("hidden");
+    await loadAiSuggestedRelations(logId);  // AIの気づき（候補）
+    await loadRelations(logId);             // 手動で紐付け済みの関連
+  }
+
+  // ---- AIが検知した類似候補（同じ関連エリアに表示）----
+  async function loadAiSuggestedRelations(logId) {
+    const box = document.getElementById(`ai-suggested-${logId}`);
+    if (!box) return;
+    box.innerHTML = '<p class="text-xs text-gray-400">AIの気づきを確認中...</p>';
+
+    let data;
+    try {
+      const res = await fetch(`/api/logs/${logId}/similar`);
+      data = await res.json();
+    } catch (e) {
+      box.innerHTML = "";
+      return;
+    }
+
+    const items = (data.similar || []).filter(s => !s.already_linked);
+    if (!items.length) {
+      box.innerHTML = "";  // 候補なし or 全て紐付け済みなら何も出さない
+      return;
+    }
+
+    const tagClass = { error:"tag-error", idea:"tag-idea", memo:"tag-memo" };
+    const rows = items.map(s => {
+      const isDup = s.relation_type === "duplicate";
+      const label = isDup
+        ? '<span class="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full shrink-0">🔁 重複</span>'
+        : '<span class="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full shrink-0">🔗 関連</span>';
+      return `
+        <div class="flex items-start gap-2 p-2 bg-white rounded border border-amber-100">
+          ${label}
+          <span class="${tagClass[s.tag] || ''} text-xs px-1.5 py-0.5 rounded-full font-medium shrink-0">${s.tag}</span>
+          <div class="flex-1 min-w-0">
+            <p class="text-xs text-gray-700 whitespace-pre-wrap">${esc(s.content)}</p>
+            ${s.reason ? `<p class="text-xs text-amber-500 mt-0.5">💭 ${esc(s.reason)}</p>` : ""}
+          </div>
+          <button onclick="adoptAiRelation(${logId}, ${s.id}, '${isDup ? '重複として記録' : 'AIが関連を検出'}')"
+            class="text-xs bg-indigo-600 text-white px-2 py-0.5 rounded hover:bg-indigo-700 shrink-0">紐付ける</button>
+        </div>`;
+    }).join("");
+
+    box.innerHTML = `
+      <div class="space-y-1">
+        <p class="text-xs font-semibold text-amber-600">💡 AIが見つけた候補（紐付けるか判断してください）</p>
+        ${rows}
+      </div>`;
+  }
+
+  // ---- AI候補を関連ログとして採用（手動紐付けと同じLogRelationに保存）----
+  async function adoptAiRelation(logId, relatedLogId, note) {
+    const res = await fetch(`/api/logs/${logId}/relations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ related_log_id: relatedLogId, note }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert("エラー: " + (err.error || "不明"));
+      return;
+    }
+    showToast("関連ログを紐付けました ✓");
+    // 候補リストと確定済みリストを再読込（採用済みは候補から消える）
+    await loadAiSuggestedRelations(logId);
     await loadRelations(logId);
+    // 🔗バッジを付与
+    const card = document.getElementById(`log-${logId}`);
+    if (card && !card.querySelector('.relation-badge')) {
+      const badgeArea = card.querySelector('.flex.items-center.gap-2.flex-wrap');
+      if (badgeArea) {
+        const badge = document.createElement('span');
+        badge.className = 'relation-badge text-xs bg-indigo-50 text-indigo-500 px-2 py-0.5 rounded-full cursor-pointer hover:bg-indigo-100';
+        badge.setAttribute('onclick', `toggleRelations(${logId})`);
+        badge.title = '関連ログあり';
+        badge.textContent = '🔗 関連あり';
+        badgeArea.append(badge);
+      }
+    }
   }
 
   async function loadRelations(logId) {
@@ -678,7 +773,7 @@
         badge.setAttribute('onclick', `toggleRelations(${logId})`);
         badge.title = '関連ログあり';
         badge.textContent = '🔗 関連あり';
-        badgeArea.prepend(badge);
+        badgeArea.append(badge);
       }
     }
   }
@@ -726,7 +821,7 @@
         badge.setAttribute('onclick', `toggleRelations(${logId})`);
         badge.title = '関連ログあり';
         badge.textContent = '🔗 関連あり';
-        badgeArea.prepend(badge);
+        badgeArea.append(badge);
       }
     }
   }
@@ -747,11 +842,11 @@
       });
       const data = await res.json();
       if (data.similar && data.similar.length > 0) {
-        // Setに追加（再描画後も保持）
-        similarBadgeIds.add(logId);
-        // 保存直後のカードにバッジを表示
-        const badge = document.getElementById(`similar-badge-${logId}`);
-        if (badge) badge.classList.add("visible");
+        // duplicateが1件でもあれば重複扱い、それ以外は関連
+        const hasDup = data.similar.some(s => s.relation_type === "duplicate");
+        const type = hasDup ? "duplicate" : "related";
+        similarBadgeMap.set(logId, type);
+        applySimilarBadge(logId, type);
       }
     } catch (e) {
       // バックグラウンドなのでエラーは無視

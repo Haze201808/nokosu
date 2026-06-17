@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
-from models.database import db, Log, AiContext
+from models.database import db, Log, AiContext, LogRelation
 from services.claude_service import ask_context_questions, find_similar_and_suggest, find_similar_logs
+import json as _json
 
 ai_bp = Blueprint("ai", __name__)
 
@@ -44,16 +45,17 @@ def get_suggestion():
     if not content or not answer:
         return jsonify({"error": "content and answer are required"}), 400
 
-    past_logs = (
-        db.session.query(Log)
-        .order_by(Log.created_at.desc())
-        .limit(50)
-        .all()
-    )
+    # 自分自身を除外した過去ログ
+    past_q = db.session.query(Log).order_by(Log.created_at.desc())
+    if log_id:
+        past_q = past_q.filter(Log.id != log_id)
+    past_logs = past_q.limit(50).all()
     past_list = [l.to_dict() for l in past_logs]
 
     try:
-        suggestion = find_similar_and_suggest(content, tag, answer, past_list)
+        # 先に重複/関連を判定し、その結果を根拠に提案文を作る
+        relations  = find_similar_logs(content, tag, past_list)
+        suggestion = find_similar_and_suggest(content, tag, answer, past_list, relations)
 
         # ai_contextにanswerとsuggestionを保存
         if ai_context_id:
@@ -84,18 +86,18 @@ def get_ai_contexts(log_id):
     return jsonify([c.to_dict() for c in contexts])
 
 
-
 @ai_bp.route("/api/ai/similar", methods=["POST"])
 def get_similar():
     """
     新規保存後バックグラウンドで呼ばれる。
-    類似ログIDのリストを返す（フロントがバッジ表示に使う）。
+    類似ログ（id, relation_type, reason）のリストを返す。
+    結果は ai_contexts.suggestion に JSON で保存しておき、
+    後でバッジ押下時に get_stored_similar が取り出す。
     """
     data    = request.get_json()
     log_id  = data.get("log_id")
     content = (data.get("content") or "").strip()
     tag     = data.get("tag", "memo")
-    print("similar: log_id =", log_id, "content =", content[:20])
 
     if not content:
         return jsonify({"similar": []}), 200
@@ -112,24 +114,80 @@ def get_similar():
 
     try:
         similar = find_similar_logs(content, tag, past_list)
-        #AI応答のログ確認
-        print("similar result:", similar)
-        # log_idのai_contextにsimilarを保存（次にカードを開いたとき取得可能に）
+
+        # 類似結果を専用のai_contextにJSON保存（自然文のsuggestionとは別レコードにする）
         if log_id and similar:
-            from models.database import AiContext
-            ctx = db.session.query(AiContext).filter(
-                AiContext.log_id == log_id,
-                AiContext.suggestion.is_(None),
-            ).order_by(AiContext.created_at.desc()).first()
-            # suggestion フィールドに類似結果をJSON保存
-            import json as _json
-            if ctx:
-                ctx.suggestion = _json.dumps(similar, ensure_ascii=False)
-            else:
-                ctx = AiContext(log_id=log_id, suggestion=_json.dumps(similar, ensure_ascii=False))
-                db.session.add(ctx)
+            ctx = AiContext(
+                log_id=log_id,
+                suggestion=_json.dumps(similar, ensure_ascii=False),
+            )
+            db.session.add(ctx)
             db.session.commit()
 
         return jsonify({"similar": similar})
     except Exception as e:
-        return jsonify({"similar": [], "error": str(e)}), 200  # バックグラウンドなので200で返す
+        # バックグラウンドなので200で返す
+        return jsonify({"similar": [], "error": str(e)}), 200
+
+
+@ai_bp.route("/api/logs/<int:log_id>/similar", methods=["GET"])
+def get_stored_similar(log_id):
+    """
+    保存済みの類似検知結果（find_similar_logsのJSON）を取り出し、
+    該当ログ本体とjoinして返す。バッジ押下時にフロントが使う。
+    """
+    contexts = (
+        db.session.query(AiContext)
+        .filter(AiContext.log_id == log_id)
+        .order_by(AiContext.created_at.desc())
+        .all()
+    )
+
+    detected = []
+    for ctx in contexts:
+        if not ctx.suggestion:
+            continue
+        try:
+            parsed = _json.loads(ctx.suggestion)
+        except (ValueError, TypeError):
+            continue  # 自然文の提案はスキップ
+        if isinstance(parsed, list) and parsed:
+            detected = parsed
+            break  # 最新のJSON検知結果を採用
+
+    if not detected:
+        return jsonify({"similar": []})
+
+    # すでに手動で紐付け済みのlog_idを集める（候補から除外用）
+    rels = (
+        db.session.query(LogRelation)
+        .filter(db.or_(LogRelation.log_id == log_id,
+                       LogRelation.related_log_id == log_id))
+        .all()
+    )
+    linked_ids = set()
+    for r in rels:
+        linked_ids.add(r.related_log_id if r.log_id == log_id else r.log_id)
+
+    # 候補にログ本体をjoin
+    result = []
+    for d in detected:
+        if not isinstance(d, dict):
+            continue
+        rid = d.get("id")
+        if rid is None or rid == log_id:
+            continue
+        target = db.session.get(Log, rid)
+        if not target:
+            continue  # 削除済みログはスキップ
+        result.append({
+            "id":             target.id,
+            "relation_type":  d.get("relation_type", "related"),
+            "reason":         d.get("reason", ""),
+            "content":        target.content,
+            "tag":            target.tag,
+            "already_linked": rid in linked_ids,
+        })
+
+    return jsonify({"similar": result})
+
