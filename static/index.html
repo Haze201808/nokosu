@@ -133,6 +133,21 @@
   保存しました
 </div>
 
+<!-- マインドマップ モーダル -->
+<div id="mindmap-modal" class="hidden fixed inset-0 z-50 bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-xl w-full max-w-4xl h-[80vh] flex flex-col overflow-hidden">
+    <div class="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+      <div class="flex items-center gap-3">
+        <button id="mm-back-btn" onclick="mmGoBack()"
+          class="hidden text-sm text-gray-400 hover:text-gray-700">← 戻る</button>
+        <span class="text-sm font-semibold text-gray-600">🗺️ 関連マップ</span>
+      </div>
+      <button onclick="closeMindmap()" class="text-gray-400 hover:text-gray-700 text-xl leading-none">×</button>
+    </div>
+    <div id="mindmap-body" class="flex-1 overflow-auto bg-gray-50"></div>
+  </div>
+</div>
+
 <script>
   // ---- State ----
   let currentTag = "memo";
@@ -315,6 +330,7 @@
               <div class="flex gap-1 flex-shrink-0">
                 <button onclick="toggleAiHistory(${log.id})" class="text-gray-300 hover:text-purple-400 text-sm px-1" title="AI履歴">🤖</button>
                 <button onclick="toggleRelations(${log.id})" class="text-gray-300 hover:text-indigo-400 text-sm px-1" title="関連ログ">🔗</button>
+                <button onclick="openMindmap(${log.id})" class="text-gray-300 hover:text-green-500 text-sm px-1" title="関連マップ">🗺️</button>
                 <button onclick="startEdit(${log.id})" class="text-gray-300 hover:text-blue-400 text-sm px-1" title="編集">✎</button>
                 <button onclick="deleteLog(${log.id})" class="text-gray-300 hover:text-red-400 text-lg leading-none" title="削除">×</button>
               </div>
@@ -852,6 +868,159 @@
       // バックグラウンドなのでエラーは無視
     }
   }
+
+  // ---- マインドマップ ----
+  const MM_TAG_COLORS = {
+    error: { fill:"#fee2e2", stroke:"#dc2626", text:"#dc2626" },
+    idea:  { fill:"#fef9c3", stroke:"#ca8a04", text:"#ca8a04" },
+    memo:  { fill:"#dbeafe", stroke:"#2563eb", text:"#2563eb" },
+  };
+
+  // 辿ってきたカードのID履歴（戻る用）
+  let mmHistory = [];
+
+  async function openMindmap(logId, pushHistory = true) {
+    const modal = document.getElementById("mindmap-modal");
+    const body  = document.getElementById("mindmap-body");
+    modal.classList.remove("hidden");
+    body.innerHTML = '<p class="text-sm text-gray-400 text-center pt-20">関連を読み込み中...</p>';
+
+    // 基準カード本体（ID指定で確実に取得）と関連を取得
+    let center, relations;
+    try {
+      const [logRes, relRes] = await Promise.all([
+        fetch(`/api/logs/${logId}`),              // ID指定で基準カードを取得
+        fetch(`/api/logs/${logId}/relations`),    // 1階層の関連
+      ]);
+      if (logRes.ok) {
+        center = await logRes.json();
+      }
+      relations = relRes.ok ? await relRes.json() : [];
+    } catch (e) {
+      body.innerHTML = mmErrorView("読み込みに失敗しました");
+      return;
+    }
+
+    if (!center) {
+      body.innerHTML = mmErrorView("カードが見つかりません");
+      return;
+    }
+
+    // 履歴に積む（戻る操作のときは積まない）
+    if (pushHistory) {
+      // 連続して同じIDを積まない
+      if (mmHistory[mmHistory.length - 1] !== logId) mmHistory.push(logId);
+    }
+
+    body.innerHTML = renderMindmapSVG(center, relations);
+    updateMmBackButton();
+  }
+
+  // エラー/空表示でも「戻る」で前のカードに戻れるようにする
+  function mmErrorView(msg) {
+    return `<div class="flex flex-col items-center justify-center h-full gap-3">
+      <p class="text-sm text-gray-400">${msg}</p>
+    </div>`;
+  }
+
+  // 「← 戻る」ボタンの表示制御
+  function updateMmBackButton() {
+    const btn = document.getElementById("mm-back-btn");
+    if (!btn) return;
+    btn.classList.toggle("hidden", mmHistory.length <= 1);
+  }
+
+  async function mmGoBack() {
+    if (mmHistory.length <= 1) return;
+    mmHistory.pop();                       // 今いるカードを捨てる
+    const prev = mmHistory[mmHistory.length - 1];
+    await openMindmap(prev, false);        // 前のカードを履歴に積まず開く
+  }
+
+  function renderMindmapSVG(center, relations) {
+    const W = 760, H = 560;
+    const cx = W / 2, cy = H / 2;
+    const radius = relations.length > 6 ? 210 : 170;
+
+    // ノード矩形のサイズ
+    const nodeW = 150, nodeH = 54;
+
+    // エッジ（線）を先に描く＝ノードの下に来る
+    let edges = "";
+    let nodes = "";
+
+    relations.forEach((r, i) => {
+      const angle = (2 * Math.PI * i) / relations.length - Math.PI / 2; // 上から時計回り
+      const nx = cx + radius * Math.cos(angle);
+      const ny = cy + radius * Math.sin(angle);
+
+      edges += `<line x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}"
+        stroke="#cbd5e1" stroke-width="1.5" />`;
+      if (r.note) {
+        const mx = (cx + nx) / 2, my = (cy + ny) / 2;
+        edges += `<text x="${mx}" y="${my - 4}" text-anchor="middle"
+          font-size="9" fill="#94a3b8">${escSvg(r.note)}</text>`;
+      }
+
+      nodes += mmNode(r.related_log, nx, ny, nodeW, nodeH, false);
+    });
+
+    // 中心ノード（最後に描く＝最前面）
+    nodes += mmNode(center, cx, cy, nodeW + 20, nodeH + 6, true);
+
+    const emptyMsg = relations.length === 0
+      ? `<text x="${cx}" y="${cy + 70}" text-anchor="middle" font-size="12" fill="#94a3b8">関連ログはまだありません</text>`
+      : "";
+
+    return `
+      <div class="w-full h-full flex items-center justify-center">
+        <svg viewBox="0 0 ${W} ${H}" width="100%" height="100%"
+          style="max-width:${W}px" xmlns="http://www.w3.org/2000/svg">
+          ${edges}
+          ${nodes}
+          ${emptyMsg}
+        </svg>
+      </div>`;
+  }
+
+  function mmNode(log, x, y, w, h, isCenter) {
+    const c = MM_TAG_COLORS[log.tag] || MM_TAG_COLORS.memo;
+    const rx = x - w / 2, ry = y - h / 2;
+    const label = (log.content || "").slice(0, 22) + ((log.content || "").length > 22 ? "…" : "");
+    const strokeW = isCenter ? 2.5 : 1.5;
+    const cursor  = isCenter ? "default" : "pointer";
+    const click   = isCenter ? "" : `onclick="openMindmap(${log.id})" style="cursor:pointer"`;
+
+    return `
+      <g ${click}>
+        <rect x="${rx}" y="${ry}" width="${w}" height="${h}" rx="10"
+          fill="${c.fill}" stroke="${c.stroke}" stroke-width="${strokeW}" />
+        <text x="${x}" y="${ry + 18}" text-anchor="middle"
+          font-size="9" font-weight="bold" fill="${c.text}">${log.tag}</text>
+        <text x="${x}" y="${ry + 36}" text-anchor="middle"
+          font-size="11" fill="#374151">${escSvg(label)}</text>
+      </g>`;
+  }
+
+  // SVGテキスト用エスケープ（< > & のみ）
+  function escSvg(s) {
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
+  function closeMindmap() {
+    document.getElementById("mindmap-modal").classList.add("hidden");
+    document.getElementById("mindmap-body").innerHTML = "";
+    mmHistory = [];  // 閉じたら辿り直し
+    updateMmBackButton();
+  }
+
+  // 背景クリック・Escで閉じる
+  document.getElementById("mindmap-modal").addEventListener("click", e => {
+    if (e.target.id === "mindmap-modal") closeMindmap();
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") closeMindmap();
+  });
 </script>
 </body>
 </html>

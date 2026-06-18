@@ -44,6 +44,15 @@ def create_log():
     return jsonify(log.to_dict()), 201
 
 
+@logs_bp.route("/api/logs/<int:log_id>", methods=["GET"])
+def get_log(log_id):
+    """ID指定でログ1件を返す（マインドマップの基準カード取得用）"""
+    log = db.session.get(Log, log_id)
+    if not log:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(log.to_dict())
+
+
 @logs_bp.route("/api/logs/<int:log_id>", methods=["DELETE"])
 def delete_log(log_id):
     log = db.session.get(Log, log_id)
