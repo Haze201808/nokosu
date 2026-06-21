@@ -2,7 +2,7 @@
 
 > 開発中に出会うエラー・アイデア・メモを、その瞬間に残しておくための個人用ナレッジツール。
 
-![Phase](https://img.shields.io/badge/Phase-4-blue) ![Stack](https://img.shields.io/badge/Stack-Flask%20%2B%20SQLite-green) ![Deploy](https://img.shields.io/badge/Deploy-AWS%20EC2-orange)
+![Phase](https://img.shields.io/badge/Phase-5-blue) ![Stack](https://img.shields.io/badge/Stack-Flask%20%2B%20SQLite-green) ![Deploy](https://img.shields.io/badge/Deploy-AWS%20EC2-orange) ![HTTPS](https://img.shields.io/badge/HTTPS-enabled-success)
 
 ---
 
@@ -43,6 +43,19 @@
 - **既存ログへの検索紐付け**：関連ログ作成時に「既存から選ぶ」タブでキーワード検索して既存ログと紐付け可能
 - **🔗ボタン常時表示**：全カードの右上に関連ログボタンを常時表示（関連ログがないカードからも操作可能）
 
+### フェーズ5（実装済み）
+- **重複/関連の判定ロジック改善**：AIの類似検知に明確な判定基準（duplicate=実質同一内容のみ／related=テーマが近いが内容は別）を導入し、過敏な重複判定を抑制
+- **自己照合バグの修正**：`/api/ai/suggest`が保存直後の自分自身を「過去ログ」として誤検知していた問題を修正（自己除外フィルタを追加）
+- **バッジの出し分け**：🔁 重複 / 🔗 関連の気づき をAIの判定結果に応じて表示
+- **AI候補からの紐付けUI**：バッジを押すと「AIが見つけた候補（reason付き）」が関連ログエリアに表示され、ボタン1つで`log_relations`に紐付け可能（採用は人が判断）
+- **マインドマップ（静的・1階層）**：カードの🗺️ボタンから、選択したカードを中心に1階層の関連ログを放射状に表示するモーダルを追加。ノードクリックでそのカードを起点に再表示、「← 戻る」で辿った履歴を戻れる（PC専用・静的表示）
+- **ログ単体取得API追加**：`GET /api/logs/<id>` を追加し、一覧の件数制限（10/200件）に関わらず特定のログを確実に取得できるように
+- **本番環境のセキュリティ強化**：
+  - 独自ドメイン（`nokosu.haze-lab.com`）取得 + Let's EncryptによるHTTPS化
+  - nginx Basic認証を追加（知らない第三者のアクセスを防止）
+  - 不要なポート（22, 5001）をセキュリティグループから削除し、80（→443リダイレクト）・443のみ開放
+  - Elastic IPをCDKコードで明示的に管理（`CfnEIP` + `CfnEIPAssociation`）し、デプロイの度にIPが変わる問題を解消
+
 ---
 
 ## スタック
@@ -69,8 +82,8 @@ nokosu/
 ├── models/
 │   └── database.py         # SQLAlchemyモデル（Log / AiContext / LogRelation）
 ├── routes/
-│   ├── logs.py             # /api/logs CRUD + 関連ログエンドポイント
-│   └── ai.py               # /api/ai/question, suggest, similar
+│   ├── logs.py             # /api/logs CRUD + ログ単体取得 + 関連ログエンドポイント
+│   └── ai.py                # /api/ai/question, suggest, similar + 保存済み類似候補取得
 ├── services/
 │   └── claude_service.py   # Claude API呼び出し
 ├── static/
@@ -132,9 +145,17 @@ cdk bootstrap
 # デプロイ
 cdk deploy
 
-# 出力されたURLにアクセス
-# → http://<EC2 Public IP>
+# 出力されたElastic IPをDNS（Aレコード）に設定
+# → https://nokosu.haze-lab.com でアクセス（Basic認証あり）
 ```
+
+CDKでElastic IPを管理しているため、`cdk deploy`を何度実行してもIPアドレスは変わりません。DNS（Cloudflare）のAレコードは初回設定後、基本的に変更不要です。
+
+### 本番アクセス
+
+- URL: `https://nokosu.haze-lab.com`
+- 認証: nginx Basic認証（ユーザー名・パスワードは別途管理）
+- HTTPS: Let's Encrypt（Certbot、自動更新）
 
 ### EC2接続（SSM）
 
@@ -142,12 +163,14 @@ cdk deploy
 # SSH鍵不要でEC2に接続
 aws ssm start-session --target <InstanceId>
 
+# 初回のみ（safe.directory設定、ssm-userのホームはセッションごとにリセットされる）
+git config --global --add safe.directory /opt/nokosu
+
 # ログ確認
 sudo journalctl -u nokosu -n 50 --no-pager
 
-# アプリ更新
-sudo git -C /opt/nokosu pull
-sudo systemctl restart nokosu
+# 証明書の確認
+sudo certbot certificates
 ```
 
 ### コードを本番反映する手順
@@ -156,11 +179,15 @@ sudo systemctl restart nokosu
 # ローカルでpush
 git add . && git commit -m "feat: xxx" && git push
 
-# EC2側で反映
+# EC2側で反映（pullではなくfetch + reset --hardを使う）
 aws ssm start-session --target <InstanceId>
-sudo git -C /opt/nokosu pull
+git config --global --add safe.directory /opt/nokosu
+sudo git -C /opt/nokosu fetch origin
+sudo git -C /opt/nokosu reset --hard origin/master
 sudo systemctl restart nokosu
 ```
+
+> **Note:** `git pull`は使わない。ローカルでforce pushした履歴があると、EC2側のブランチがdivergeしてマージコンフリクト（コンフリクトマーカーが本番ファイルに残る等）が発生したことがあるため、常にリモートの状態に強制一致させる`fetch + reset --hard`に統一している。
 
 ---
 

@@ -23,10 +23,10 @@ class NokosuStack(Stack):
             description="Nokosu security group",
             allow_all_outbound=True,
         )
-        sg.add_ingress_rule(ec2.Peer.any_ipv4(), ec2.Port.tcp(22),   "SSH")
-        sg.add_ingress_rule(ec2.Peer.any_ipv4(), ec2.Port.tcp(80),   "HTTP")
+        sg.add_ingress_rule(ec2.Peer.any_ipv4(), ec2.Port.tcp(80),   "HTTP (redirects to HTTPS)")
         sg.add_ingress_rule(ec2.Peer.any_ipv4(), ec2.Port.tcp(443),  "HTTPS")
-        sg.add_ingress_rule(ec2.Peer.any_ipv4(), ec2.Port.tcp(5001), "Flask dev")
+        # 22(SSH)はSSM経由でアクセスするため開放不要
+        # 5001(Flask dev)はnginxが127.0.0.1経由でプロキシするため外部公開不要
 
         # IAM Role（SSM接続用 - SSH鍵なしでもアクセス可能）
         role = iam.Role(
@@ -130,11 +130,24 @@ class NokosuStack(Stack):
             ]
         )
 
-        # パブリックIPを出力
+        # Elastic IP（CDKコードで管理し、デプロイの度にIPが変わらないようにする）
+        eip = ec2.CfnEIP(self, "NokosuEIP", domain="vpc")
+        ec2.CfnEIPAssociation(
+            self, "NokosuEIPAssociation",
+            allocation_id=eip.attr_allocation_id,
+            instance_id=instance.instance_id,
+        )
+
+        # パブリックIPを出力（Elastic IPを参照。デプロイの度に変わらない）
         CfnOutput(
             self, "NokosuURL",
-            value=f"http://{instance.instance_public_ip}",
+            value=f"https://nokosu.haze-lab.com (EIP: {eip.ref})",
             description="Nokosu App URL",
+        )
+        CfnOutput(
+            self, "ElasticIP",
+            value=eip.ref,
+            description="Elastic IP address (固定IP・DNSのAレコードをここに向ける)",
         )
         CfnOutput(
             self, "InstanceId",
