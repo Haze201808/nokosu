@@ -25,6 +25,22 @@ def get_logs():
     return jsonify([l.to_dict() for l in logs])
 
 
+@logs_bp.route("/api/logs/active", methods=["GET"])
+def get_active_logs():
+    """
+    『今やっている』固定セクション用。
+    status=やる のidea/memoだけを返す（ステータス連動の常設表示）。
+    """
+    logs = (
+        Log.query
+        .filter(Log.tag.in_(Log.STATUS_TAGS), Log.status == "やる")
+        .order_by(Log.updated_at.desc())
+        .limit(10)
+        .all()
+    )
+    return jsonify([l.to_dict() for l in logs])
+
+
 @logs_bp.route("/api/logs", methods=["POST"])
 def create_log():
     data = request.get_json()
