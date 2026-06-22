@@ -244,4 +244,3 @@ def delete_relation(log_id, relation_id):
     db.session.commit()
     return jsonify({"deleted": relation_id})
 
-    
