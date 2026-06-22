@@ -6,6 +6,68 @@ import json as _json
 ai_bp = Blueprint("ai", __name__)
 
 
+@ai_bp.route("/api/logs/discover", methods=["GET"])
+def discover_unlinked_similar():
+    """
+    『見つかったかも』全体共通の発見セクション用。
+    直近のAI類似度判定結果(ai_contexts)から、まだlog_relationsに
+    登録されていない候補ペアを最大5件返す。
+    """
+    contexts = (
+        db.session.query(AiContext)
+        .order_by(AiContext.created_at.desc())
+        .limit(50)
+        .all()
+    )
+
+    # 既存の関連ペアをセット化（順不同で比較するためfrozenset）
+    existing_rels = db.session.query(LogRelation).all()
+    linked_pairs = {frozenset((r.log_id, r.related_log_id)) for r in existing_rels}
+
+    seen_pairs = set()
+    candidates = []
+
+    for ctx in contexts:
+        if len(candidates) >= 5:
+            break
+        if not ctx.suggestion:
+            continue
+        try:
+            parsed = _json.loads(ctx.suggestion)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(parsed, list):
+            continue
+
+        for item in parsed:
+            if len(candidates) >= 5:
+                break
+            if not isinstance(item, dict):
+                continue
+            other_id = item.get("id")
+            if other_id is None or other_id == ctx.log_id:
+                continue
+
+            pair_key = frozenset((ctx.log_id, other_id))
+            if pair_key in linked_pairs or pair_key in seen_pairs:
+                continue
+
+            source = db.session.get(Log, ctx.log_id)
+            target = db.session.get(Log, other_id)
+            if not source or not target:
+                continue  # 削除済みログはスキップ
+
+            seen_pairs.add(pair_key)
+            candidates.append({
+                "source":        source.to_dict(),
+                "target":        target.to_dict(),
+                "relation_type": item.get("relation_type", "related"),
+                "reason":        item.get("reason", ""),
+            })
+
+    return jsonify(candidates)
+
+
 @ai_bp.route("/api/ai/question", methods=["POST"])
 def get_question():
     """保存直後に呼ばれる：AIが文脈質問を返す"""
@@ -191,3 +253,4 @@ def get_stored_similar(log_id):
 
     return jsonify({"similar": result})
 
+    
