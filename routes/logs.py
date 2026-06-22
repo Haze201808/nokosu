@@ -15,7 +15,7 @@ def get_logs():
     if tag and tag in Log.VALID_TAGS:
         query = query.filter(Log.tag == tag)
     if project:
-        query = query.filter(Log.project == project)
+        query = query.filter(Log.project.ilike(f"%{project}%"))
     if q:
         query = query.filter(Log.content.ilike(f"%{q}%"))
 
@@ -243,3 +243,5 @@ def delete_relation(log_id, relation_id):
     db.session.delete(relation)
     db.session.commit()
     return jsonify({"deleted": relation_id})
+
+    
