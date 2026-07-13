@@ -39,6 +39,16 @@ class NokosuStack(Stack):
             ]
         )
 
+        # Secrets Manager権限（Anthropic APIキー取得用）
+        role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["secretsmanager:GetSecretValue"],
+                resources=[
+                    f"arn:aws:secretsmanager:ap-northeast-1:447890741976:secret:fx-diary/anthropic-api-key-*"
+                ]
+            )
+        )
+
         # User Data（起動時に自動セットアップ）
         user_data = ec2.UserData.for_linux()
         user_data.add_commands(

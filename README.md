@@ -2,7 +2,7 @@
 
 > 開発中に出会うエラー・アイデア・メモを、その瞬間に残しておくための個人用ナレッジツール。
 
-![Phase](https://img.shields.io/badge/Phase-5-blue) ![Stack](https://img.shields.io/badge/Stack-Flask%20%2B%20SQLite-green) ![Deploy](https://img.shields.io/badge/Deploy-AWS%20EC2-orange) ![HTTPS](https://img.shields.io/badge/HTTPS-enabled-success)
+![Phase](https://img.shields.io/badge/Phase-6-blue) ![Stack](https://img.shields.io/badge/Stack-Flask%20%2B%20SQLite-green) ![Deploy](https://img.shields.io/badge/Deploy-AWS%20EC2-orange) ![HTTPS](https://img.shields.io/badge/HTTPS-enabled-success)
 
 ---
 
@@ -55,6 +55,13 @@
   - nginx Basic認証を追加（知らない第三者のアクセスを防止）
   - 不要なポート（22, 5001）をセキュリティグループから削除し、80（→443リダイレクト）・443のみ開放
   - Elastic IPをCDKコードで明示的に管理（`CfnEIP` + `CfnEIPAssociation`）し、デプロイの度にIPが変わる問題を解消
+
+### フェーズ6（実装済み）
+- **「今やっている」固定パネル**：memo/ideaのうちステータスが`やる`のログを、タブ一覧の上に常設パネルとして表示。ステータスを`やる`に切り替えると自動的にパネルへ現れ、`完了`にすると消える（新規DBカラム不要、既存`status`カラムを再利用）
+- **「関連あるかも」発見パネル**：保存時にバックグラウンドで実行しているAI類似度判定の結果（`ai_contexts`）を再利用し、まだ`log_relations`に未登録の候補ペアを全体から自動提示（最大5件）。ボタン1つで関連付け、または「今は見ない」でそのセッションのみ非表示（新規テーブル不要）
+- **両パネルの折りたたみ**：パネルヘッダーをクリックで開閉、件数バッジ表示、開閉状態は`localStorage`に保存してページ再読み込み後も保持
+- **プロジェクト絞り込みのバグ修正**：完全一致（`==`）になっていたプロジェクト名フィルタを部分一致（`ilike`）に変更。前方一致・大文字小文字を問わず引っかかるように
+- **検索UIの視覚的区別**：キーワード検索（🔍）とプロジェクト絞り込み（📁）にアイコンを追加し、誤って違う入力欄に入力してしまう問題を防止
 
 ---
 
