@@ -1,0 +1,28 @@
+# news-collector(SQS)からnokosuへの取り込み。timerから起動する一回実行型サービス。
+# 配置: sudo cp deploy/systemd/nokosu-news-ingest.* /etc/systemd/system/
+[Unit]
+Description=Nokosu news ingest (SQS -> SQLite)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/nokosu
+# キューURLはシークレットではないが、アカウントIDを含むのでリポジトリには入れない。
+# /etc/nokosu/news-ingest.env に NEWS_QUEUE_URL=... を書いておく
+EnvironmentFile=/etc/nokosu/news-ingest.env
+Environment=AWS_DEFAULT_REGION=ap-northeast-1
+Environment=DB_PATH=/opt/nokosu/data/nokosu.db
+ExecStart=/opt/nokosu/.venv/bin/python -m workers.news_ingest
+TimeoutStartSec=15min
+
+# --- ハードニング(書き込みはDBディレクトリだけに限定) ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/nokosu/data
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true

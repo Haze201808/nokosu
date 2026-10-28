@@ -4,6 +4,7 @@ from config import Config
 from models.database import db
 from routes.logs import logs_bp
 from routes.ai import ai_bp
+from routes.news import news_bp
 import os
 
 def create_app():
@@ -17,6 +18,7 @@ def create_app():
 
     app.register_blueprint(logs_bp)
     app.register_blueprint(ai_bp)
+    app.register_blueprint(news_bp)
 
     @app.route("/")
     def index():

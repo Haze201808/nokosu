@@ -87,10 +87,16 @@ nokosu/
 ├── migrate.py              # DBマイグレーション
 ├── requirements.txt
 ├── models/
-│   └── database.py         # SQLAlchemyモデル（Log / AiContext / LogRelation）
+│   └── database.py         # SQLAlchemyモデル（Log / AiContext / LogRelation / NewsItem）
 ├── routes/
 │   ├── logs.py             # /api/logs CRUD + ログ単体取得 + 関連ログエンドポイント
-│   └── ai.py                # /api/ai/question, suggest, similar + 保存済み類似候補取得
+│   ├── ai.py                # /api/ai/question, suggest, similar + 保存済み類似候補取得
+│   └── news.py              # /api/news 一覧・既読切り替え
+├── workers/
+│   └── news_ingest.py       # SQS→SQLite取り込みワーカー（systemd timerから起動）
+├── deploy/systemd/          # ワーカー用のservice/timerユニット
+├── tests/
+│   └── test_news.py
 ├── services/
 │   └── claude_service.py   # Claude API呼び出し
 ├── static/
@@ -195,6 +201,61 @@ sudo systemctl restart nokosu
 ```
 
 > **Note:** `git pull`は使わない。ローカルでforce pushした履歴があると、EC2側のブランチがdivergeしてマージコンフリクト（コンフリクトマーカーが本番ファイルに残る等）が発生したことがあるため、常にリモートの状態に強制一致させる`fetch + reset --hard`に統一している。
+
+---
+
+## ニュース取り込み（news-collector連携）
+
+個人AWSの news-collector が週次で収集した業界ニュース（金融庁RSS等）を、SQS経由で取り込み、📰 newsタブに表示する。
+
+```
+news-collector(Lambda) → SQS → [EC2] nokosu-news-ingest.timer(1時間ごと) → SQLite(news_items)
+```
+
+### 設計上の判断
+
+- **logsとは別テーブル（`news_items`）にする**：外部サイト由来の文字列をAIの深掘り質問・類似分析に流さないため（プロンプトインジェクション対策）
+- **ワーカーはgunicornの外で動かす**：gunicornのワーカーごとにポーリングが走るのを避けるため、systemd timerの一回実行型サービスにしている
+- **COMMITしてからSQSから削除する**：保存失敗時にデータを失わないため。重複配信は `item_id` のUNIQUE制約で無視する
+- **不正なメッセージは削除しない**：3回再配信されるとDLQへ移り、news-collector側のアラームで気づける
+- **表示は必ず `esc()` を通し、URLは http/https のみリンク化する**（保存型XSS対策）
+
+### EC2への初回セットアップ
+
+前提：news-collectorのデプロイ時に `-c nokosuRoleName=<EC2ロール名>` を渡し、EC2ロールにキューの受信権限が付いていること。
+
+```bash
+# コードを反映（いつもの手順）
+sudo git -C /opt/nokosu fetch origin
+sudo git -C /opt/nokosu reset --hard origin/master
+
+# テーブル作成（冪等）
+sudo -u ubuntu /opt/nokosu/.venv/bin/python /opt/nokosu/migrate.py
+
+# キューURLを設定（アカウントIDを含むのでリポジトリには置かない）
+sudo mkdir -p /etc/nokosu
+echo 'NEWS_QUEUE_URL=https://sqs.ap-northeast-1.amazonaws.com/<アカウントID>/<キュー名>' | sudo tee /etc/nokosu/news-ingest.env
+sudo chmod 640 /etc/nokosu/news-ingest.env && sudo chown root:ubuntu /etc/nokosu/news-ingest.env
+
+# systemdユニットを配置して有効化
+sudo cp /opt/nokosu/deploy/systemd/nokosu-news-ingest.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now nokosu-news-ingest.timer
+sudo systemctl restart nokosu   # news APIを読み込ませる
+
+# 手動で1回動かして確認
+sudo systemctl start nokosu-news-ingest.service
+sudo journalctl -u nokosu-news-ingest -n 20 --no-pager
+```
+
+2回目以降はコード反映だけでよい。ユニットファイルを変更したときだけ `cp` と `daemon-reload` をやり直す。
+
+### テスト
+
+```bash
+python -m pip install pytest
+python -m pytest tests/
+```
 
 ---
 

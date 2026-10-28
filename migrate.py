@@ -69,6 +69,31 @@ if not cur.fetchone():
 else:
     print("ℹ️  log_relationsテーブルは既に存在します")
 
+# news_itemsテーブル(news-collectorからの取り込み先)
+cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='news_items'")
+if not cur.fetchone():
+    cur.execute("""
+        CREATE TABLE news_items (
+            id INTEGER NOT NULL,
+            item_id VARCHAR(64) NOT NULL,
+            source VARCHAR(32) NOT NULL,
+            category VARCHAR(32) NOT NULL,
+            title VARCHAR(300) NOT NULL,
+            url VARCHAR(2048) NOT NULL,
+            summary VARCHAR(500) NOT NULL DEFAULT '',
+            published_at DATETIME,
+            fetched_at DATETIME NOT NULL,
+            is_read BOOLEAN NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE (item_id)
+        )
+    """)
+    cur.execute("CREATE INDEX ix_news_items_published_at ON news_items (published_at)")
+    print("✅ news_itemsテーブルを作成しました")
+else:
+    print("ℹ️  news_itemsテーブルは既に存在します")
+
 conn.commit()
 conn.close()
 print("✅ マイグレーション完了")
