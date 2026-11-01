@@ -10,6 +10,7 @@ MAX_Q_LEN = 100
 MAX_REASON_LEN = 200
 EXPORT_DEFAULT_LIMIT = 50
 EXPORT_MAX_LIMIT = 100
+EXPORT_ID_LEN = 12  # item_id(sha256)の先頭12桁。貼り戻し時の書き写し間違いを減らす
 _WS_RE = re.compile(r"\s+")
 
 
@@ -114,7 +115,7 @@ def triage_export():
     """未判定の記事を、個人のClaudeに貼るためのプレーンテキストで返す。
 
     HTML表示(esc()経由)とは別経路。text/plainで返し、ブラウザに解釈させない。
-    番号は連番ではなく item_id(判定を貼り戻すときの対応付け用)。
+    番号は連番ではなく item_id の先頭12桁(判定を貼り戻すときの対応付け用)。
     クエリ: limit=1〜100(既定50)
     """
     raw = request.args.get("limit", str(EXPORT_DEFAULT_LIMIT))
@@ -128,17 +129,14 @@ def triage_export():
         .all()
     )
 
+    # トリアージ時にClaudeへ貼る形式: 「[短縮ID] タイトル」+ 次の行にURL。
+    # 概要は含めない(AWSの概要は長く、貼る量が数倍になるため)。
     blocks = []
     for n in items:
-        when = n.published_at or n.fetched_at
-        date = when.strftime("%Y-%m-%d") if when else ""
-        head = f"[{n.item_id}] {_one_line(n.title)}"
-        meta = f"  {_one_line(n.source)} / {_one_line(n.category)} / {date} / {_one_line(n.url)}"
-        lines = [head, meta]
-        summary = _one_line(n.summary)
-        if summary:
-            lines.append(f"  {summary}")
-        blocks.append("\n".join(lines))
+        url = _one_line(n.url)
+        if not url.startswith(("https://", "http://")):
+            url = "(URLなし)"  # ワーカーが弾いているはずだが、出力側でも確認する
+        blocks.append(f"[{n.item_id[:EXPORT_ID_LEN]}] {_one_line(n.title)}\n{url}")
 
     return Response(
         "\n\n".join(blocks) + ("\n" if blocks else ""),

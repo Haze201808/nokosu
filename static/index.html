@@ -818,7 +818,7 @@
     if (!res.ok) { showToast("コピー用テキストの取得に失敗しました"); return; }
     const text = await res.text();
     if (!text) { showToast("未判定の記事はありません"); return; }
-    const count = (text.match(/^\[[0-9a-f]{64}\] /gm) || []).length;
+    const count = (text.match(/^\[[0-9a-f]{12}\] /gm) || []).length;
     try {
       await navigator.clipboard.writeText(text);
     } catch {
