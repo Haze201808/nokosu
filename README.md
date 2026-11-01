@@ -220,6 +220,19 @@ news-collector(Lambda) → SQS → [EC2] nokosu-news-ingest.timer(1時間ごと)
 - **不正なメッセージは削除しない**：3回再配信されるとDLQへ移り、news-collector側のアラームで気づける
 - **表示は必ず `esc()` を通し、URLは http/https のみリンク化する**（保存型XSS対策）
 
+### トリアージ（判定）
+
+記事の読む価値の判定は、個人のClaudeで手動で行う。判定結果をnokosuに残し、検索・絞り込みに使う。
+
+- 判定値は `A`（深掘りする）/ `B`（見出しだけ把握）/ `C`（読まない）。`NULL` は未判定である
+- newsタブの各記事のプルダウンで1件ずつ判定する。上部のプルダウンで判定による絞り込み（未判定・A・B・C）ができる
+- 「未判定をコピー」は、未判定の記事を新しい順に最大50件、プレーンテキストでクリップボードに入れる。番号は連番ではなく `item_id` である（判定を貼り戻すときの対応付け用）
+- コピー用テキストはサーバーが `text/plain` で生成する。HTML表示（`esc()` 経由）とは別経路である
+- コピー用テキストは各記事を必ず1行に畳む。外部サイト由来の文字列が、改行で別エントリや指示文を偽装できないようにするためである（Claudeに貼る前提の対策）
+- API: `PATCH /api/news/<id>/triage`（`{"triage": "A"|"B"|"C"|null, "reason": "任意・200文字まで"}`）、`GET /api/news?triage=none|A|B|C`、`GET /api/news/triage-export?limit=50`
+- `triage_reason` はAPIのみで、UIからはまだ入力できない
+- 判定の貼り戻しによる一括反映は未実装である。作る場合は、値を A/B/C のみ許可し、`item_id` の存在を確認する（自分のClaudeの出力でも、外部記事の文字列が混ざりうる入力として扱う）
+
 ### EC2への初回セットアップ
 
 前提：news-collectorのデプロイ時に `-c nokosuRoleName=<EC2ロール名>` を渡し、EC2ロールにキューの受信権限が付いていること。
@@ -249,6 +262,15 @@ sudo journalctl -u nokosu-news-ingest -n 20 --no-pager
 ```
 
 2回目以降はコード反映だけでよい。ユニットファイルを変更したときだけ `cp` と `daemon-reload` をやり直す。
+
+**カラム追加を含む更新（トリアージ機能など）は、`restart` の前に必ず `migrate.py` を実行する。** 実行しないと、モデルにあるカラムがDBに無く、`/api/news` が500になる。`migrate.py` は何度実行しても安全である。
+
+```bash
+sudo git -C /opt/nokosu fetch origin
+sudo git -C /opt/nokosu reset --hard origin/master
+sudo -u ubuntu /opt/nokosu/.venv/bin/python /opt/nokosu/migrate.py   # 判定カラムを追加
+sudo systemctl restart nokosu
+```
 
 ### テスト
 

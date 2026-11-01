@@ -85,14 +85,34 @@ if not cur.fetchone():
             fetched_at DATETIME NOT NULL,
             is_read BOOLEAN NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL,
+            triage VARCHAR(1),
+            triage_reason VARCHAR(200) NOT NULL DEFAULT '',
+            triaged_at DATETIME,
             PRIMARY KEY (id),
-            UNIQUE (item_id)
+            UNIQUE (item_id),
+            CHECK (triage IS NULL OR triage IN ('A', 'B', 'C'))
         )
     """)
     cur.execute("CREATE INDEX ix_news_items_published_at ON news_items (published_at)")
+    cur.execute("CREATE INDEX ix_news_items_triage ON news_items (triage)")
     print("✅ news_itemsテーブルを作成しました")
 else:
     print("ℹ️  news_itemsテーブルは既に存在します")
+
+# news_itemsのトリアージ列(既存テーブルへの追加。何度実行しても安全)
+# SQLiteのALTER TABLEではCHECK制約を後付けできないため、既存DBでは制約なしになる。
+# 値の検証はAPI側(routes/news.py)で必ず行う。
+cur.execute("PRAGMA table_info(news_items)")
+news_cols = {row[1] for row in cur.fetchall()}
+for col, ddl in (
+    ("triage",        "ALTER TABLE news_items ADD COLUMN triage VARCHAR(1)"),
+    ("triage_reason", "ALTER TABLE news_items ADD COLUMN triage_reason VARCHAR(200) NOT NULL DEFAULT ''"),
+    ("triaged_at",    "ALTER TABLE news_items ADD COLUMN triaged_at DATETIME"),
+):
+    if col not in news_cols:
+        cur.execute(ddl)
+        print(f"✅ news_items.{col} を追加しました")
+cur.execute("CREATE INDEX IF NOT EXISTS ix_news_items_triage ON news_items (triage)")
 
 conn.commit()
 conn.close()

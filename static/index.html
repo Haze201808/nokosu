@@ -137,9 +137,20 @@
       <button onclick="setTabFilter('error')" id="tab-error" class="tab-btn text-gray-500 pb-2 text-sm">error</button>
       <button onclick="setTabFilter('idea')"  id="tab-idea"  class="tab-btn text-gray-500 pb-2 text-sm">idea</button>
       <button onclick="setTabFilter('news')"  id="tab-news"  class="tab-btn text-gray-500 pb-2 text-sm">📰 news</button>
-      <label id="news-unread-wrap" class="hidden ml-auto pb-2 text-xs text-gray-500 flex items-center gap-1">
-        <input id="news-unread" type="checkbox" checked onchange="loadNews()"> 未読のみ
-      </label>
+      <div id="news-unread-wrap" class="hidden ml-auto pb-2 text-xs text-gray-500 flex items-center gap-2">
+        <select id="news-triage-filter" onchange="loadNews()" class="border border-gray-200 rounded px-1 py-0.5">
+          <option value="">判定: すべて</option>
+          <option value="none">未判定</option>
+          <option value="A">A 深掘り</option>
+          <option value="B">B 把握</option>
+          <option value="C">C 読まない</option>
+        </select>
+        <label class="flex items-center gap-1">
+          <input id="news-unread" type="checkbox" checked onchange="loadNews()"> 未読のみ
+        </label>
+        <button onclick="copyUntriaged()" class="border border-gray-200 rounded px-2 py-0.5 hover:bg-gray-50"
+          title="未判定の記事をClaudeに貼る形式でコピー(最大50件)">未判定をコピー</button>
+      </div>
     </div>
     <div class="flex gap-2">
       <input id="search-q" type="text" placeholder="🔍 キーワード検索..."
@@ -732,6 +743,8 @@
     const params = new URLSearchParams();
     if (document.getElementById("news-unread").checked) params.set("unread", "1");
     if (q) params.set("q", q);
+    const triage = document.getElementById("news-triage-filter").value;
+    if (triage) params.set("triage", triage);
     const res = await fetch(`/api/news?${params}`);
     if (!res.ok) { showToast("ニュースの取得に失敗しました"); return; }
     renderNews(await res.json());
@@ -777,9 +790,47 @@
             <span class="bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">${esc(n.source)}</span>
             <span>${esc(n.category)}</span>
             <span>${esc(date)}</span>
+            <select onchange="setTriage(${n.id}, this.value)" class="ml-auto border border-gray-200 rounded px-1 py-0.5 text-gray-600"
+              title="${n.triage_reason ? esc(n.triage_reason) : "判定"}">
+              ${[["", "未"], ["A", "A"], ["B", "B"], ["C", "C"]].map(([v, label]) =>
+                `<option value="${v}" ${(n.triage || "") === v ? "selected" : ""}>${label}</option>`).join("")}
+            </select>
           </div>
         </div>`;
     }).join("");
+  }
+
+  // 判定を付ける。値はサーバー側でも A/B/C/null のみ許可している
+  async function setTriage(id, value) {
+    const res = await fetch(`/api/news/${id}/triage`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ triage: value === "" ? null : value }),
+    });
+    if (!res.ok) { showToast("判定の更新に失敗しました"); return; }
+    loadNews();
+  }
+
+  // 未判定の記事をClaudeに貼る形式でコピーする。
+  // テキストはサーバーがtext/plainで生成する(HTML表示とは別経路。innerHTMLには入れない)。
+  async function copyUntriaged() {
+    const res = await fetch("/api/news/triage-export");
+    if (!res.ok) { showToast("コピー用テキストの取得に失敗しました"); return; }
+    const text = await res.text();
+    if (!text) { showToast("未判定の記事はありません"); return; }
+    const count = (text.match(/^\[[0-9a-f]{64}\] /gm) || []).length;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // clipboard APIが使えない場合のフォールバック
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      if (!ok) { showToast("コピーに失敗しました"); return; }
+    }
+    showToast(`${count}件をコピーしました`);
   }
 
   async function markNewsRead(id, isRead) {

@@ -115,6 +115,12 @@ class NewsItem(db.Model):
     fetched_at   = db.Column(db.DateTime, nullable=False)  # UTC(naive)
     is_read      = db.Column(db.Boolean, nullable=False, default=False)
     created_at   = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    # トリアージ判定。NULL=未判定、それ以外は TRIAGE_VALUES のみ(API側で検証する)
+    triage        = db.Column(db.String(1), index=True)
+    triage_reason = db.Column(db.String(200), nullable=False, default="", server_default="")
+    triaged_at    = db.Column(db.DateTime)  # UTC(naive)
+
+    TRIAGE_VALUES = ("A", "B", "C")  # A=深掘りする / B=見出しだけ把握 / C=読まない
 
     @staticmethod
     def _utc_iso(dt):
@@ -132,4 +138,7 @@ class NewsItem(db.Model):
             "published_at": self._utc_iso(self.published_at),
             "fetched_at":   self._utc_iso(self.fetched_at),
             "is_read":      self.is_read,
+            "triage":        self.triage,
+            "triage_reason": self.triage_reason,
+            "triaged_at":    self._utc_iso(self.triaged_at),
         }
