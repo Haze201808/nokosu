@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Nokosu</title>
   <script src="https://cdn.tailwindcss.com"></script>
-    <style>
+  <style>
     body { font-family: 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif; }
     .tag-error { background:#fee2e2; color:#dc2626; }
     .tag-idea  { background:#fef9c3; color:#ca8a04; }
@@ -13,54 +13,19 @@
     .tab-active { border-bottom: 2px solid #2563eb; color:#2563eb; font-weight:600; }
     textarea:focus, input:focus { outline: none; box-shadow: 0 0 0 2px #93c5fd; }
     #toast { transition: opacity 0.3s; }
-    .ai-bubble { background: linear-gradient(135deg, #1e3a5f, #14352a) !important; }
+    .ai-bubble { background: linear-gradient(135deg, #eff6ff, #f0fdf4); }
     .status-検討中 { background:#f3f4f6; color:#6b7280; }
     .status-やる   { background:#dbeafe; color:#2563eb; }
     .status-完了   { background:#dcfce7; color:#16a34a; }
     @keyframes pulse-dot { 0%,80%,100%{opacity:0.2} 40%{opacity:1} }
-    .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#94a3b8; margin:0 2px; animation: pulse-dot 1.2s infinite; }
+    .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#6b7280; margin:0 2px; animation: pulse-dot 1.2s infinite; }
     .dot:nth-child(2){animation-delay:.2s} .dot:nth-child(3){animation-delay:.4s}
     .similar-badge { display:none; }
     .similar-badge.visible { display:inline-flex; align-items:center; }
-
-    /* ===== ダークテーマ上書き =====
-       Tailwind CDNが後からstyleを注入するため !important で優先させる */
-    :root { color-scheme: dark; }
-    body { background-color:#0f172a !important; color:#e2e8f0; }
-
-    /* 背景 */
-    .bg-white    { background-color:#1e293b !important; }
-    .bg-gray-50  { background-color:#0f172a !important; }
-    .bg-gray-100 { background-color:#334155 !important; }
-    .bg-gray-200 { background-color:#475569 !important; }
-    .hover\:bg-gray-50:hover  { background-color:#334155 !important; }
-    .hover\:bg-gray-300:hover { background-color:#64748b !important; }
-    .bg-amber-50  { background-color:#2a1f0a !important; }
-    .bg-sky-50    { background-color:#0c2a3d !important; }
-    .bg-indigo-50 { background-color:#1e1b4b !important; }
-    .hover\:bg-indigo-100:hover { background-color:#312e81 !important; }
-
-    /* 文字 */
-    .text-gray-800, .text-gray-700, .text-gray-600 { color:#e2e8f0 !important; }
-    .text-gray-500, .text-gray-400 { color:#94a3b8 !important; }
-    .text-gray-300, .text-gray-200 { color:#64748b !important; }
-    .hover\:text-gray-700:hover, .hover\:text-gray-600:hover { color:#f1f5f9 !important; }
-    .text-amber-700, .text-amber-600 { color:#fbbf24 !important; }
-    .text-sky-700, .text-sky-600     { color:#7dd3fc !important; }
-    .text-indigo-500, .text-indigo-600, .text-indigo-400 { color:#a5b4fc !important; }
-    .placeholder-gray-400::placeholder { color:#64748b !important; }
-
-    /* 枠線 */
-    .border-gray-100, .border-gray-200, .border-gray-300 { border-color:#334155 !important; }
-    .border-blue-100, .border-blue-200 { border-color:#1e40af !important; }
-    .border-amber-100, .border-amber-200 { border-color:#78350f !important; }
-    .border-sky-100, .border-sky-200 { border-color:#075985 !important; }
-
-    /* 入力欄（クラスで背景指定が無くブラウザ既定の白になるため） */
-    textarea, input[type="text"], select { background-color:#0f172a; color:#e2e8f0; }
+    .mos-green { background-color:#f0fdf4 !important; }
   </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body class="bg-gray-50 min-h-screen mos-green">
 
 <!-- Header -->
 <header class="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3 sticky top-0 z-10">
