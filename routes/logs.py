@@ -93,7 +93,8 @@ def update_log(log_id):
     if not log:
         return jsonify({"error": "not found"}), 404
 
-    data    = request.get_json()
+    # JSONでない/空のbodyでも500にせず400で返す
+    data    = request.get_json(silent=True) or {}
     content = (data.get("content") or "").strip()
     tag     = data.get("tag", log.tag)
     project = (data.get("project") or "").strip()

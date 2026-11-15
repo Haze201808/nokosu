@@ -566,6 +566,7 @@
 
     showToast("更新しました ✓");
     loadLogs();
+    loadActiveLogs(); // 「今やっている」に出ているカードを編集した場合も反映
     fetchProjects();
   }
 
@@ -626,15 +627,95 @@
 
     count.textContent = `(${logs.length})`;
     panel.classList.remove("hidden");
+    activeLogMap.clear();
+    logs.forEach(log => activeLogMap.set(log.id, log));
     list.innerHTML = logs.map(log => `
-      <div class="flex items-start gap-2 bg-white rounded-lg border border-amber-100 px-2.5 py-1.5">
-        <span class="tag-${log.tag} text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 mt-0.5">${log.tag}</span>
-        <p class="text-xs text-gray-700 flex-1 whitespace-pre-wrap leading-snug">${esc(log.content)}</p>
-        <button onclick="cycleStatus(${log.id})"
-          class="status-${log.status} text-[10px] px-2 py-0.5 rounded-full font-medium cursor-pointer hover:opacity-80 transition flex-shrink-0"
-          title="クリックでステータスを進める">${log.status}</button>
+      <div class="bg-white rounded-lg border border-amber-100 px-2.5 py-1.5">
+        <!-- 表示モード -->
+        <div id="active-view-${log.id}" class="flex items-start gap-2">
+          <span class="tag-${log.tag} text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 mt-0.5">${log.tag}</span>
+          <p class="text-xs text-gray-700 flex-1 whitespace-pre-wrap leading-snug">${esc(log.content)}</p>
+          <button onclick="startActiveEdit(${log.id})"
+            class="text-gray-300 hover:text-blue-400 text-xs px-1 flex-shrink-0" title="ここで編集">✎</button>
+          <button onclick="cycleStatus(${log.id})"
+            class="status-${log.status} text-[10px] px-2 py-0.5 rounded-full font-medium cursor-pointer hover:opacity-80 transition flex-shrink-0"
+            title="クリックでステータスを進める">${log.status}</button>
+        </div>
+        <!-- 編集モード（初期非表示）。タグ変更はカード側で行う想定で、ここは内容とプロジェクトのみ -->
+        <div id="active-edit-${log.id}" class="hidden space-y-1.5">
+          <textarea id="active-edit-content-${log.id}" rows="3"
+            onkeydown="activeEditKeydown(event, ${log.id})"
+            class="w-full text-xs text-gray-800 border border-blue-200 rounded-lg px-2.5 py-1.5 resize-y"
+          >${esc(log.content)}</textarea>
+          <div class="flex gap-2 items-center">
+            <input id="active-edit-project-${log.id}" type="text" value="${esc(log.project || '')}"
+              placeholder="プロジェクト（任意）"
+              onkeydown="activeEditKeydown(event, ${log.id})"
+              class="flex-1 min-w-[100px] text-xs border border-gray-200 rounded-lg px-2.5 py-1"
+            />
+            <button onclick="cancelActiveEdit(${log.id})" class="text-xs text-gray-400 hover:text-gray-600 px-2 py-1">キャンセル</button>
+            <button id="active-edit-save-${log.id}" onclick="saveActiveEdit(${log.id})"
+              class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-3 py-1 rounded-lg transition">保存</button>
+          </div>
+        </div>
       </div>
     `).join("");
+  }
+
+  // ---- 今やっているボードからのインライン編集 ----
+  // 一覧(#log-list)は件数制限・絞り込みがあり目的のカードが描画されていないことがあるため、
+  // カードへジャンプせずボード内で直接 PUT /api/logs/<id> を叩く。
+  const activeLogMap = new Map();
+
+  function startActiveEdit(id) {
+    document.getElementById(`active-view-${id}`).classList.add("hidden");
+    document.getElementById(`active-edit-${id}`).classList.remove("hidden");
+    const ta = document.getElementById(`active-edit-content-${id}`);
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+  }
+
+  function cancelActiveEdit(id) {
+    const log = activeLogMap.get(id);
+    // 入力途中の内容を破棄して元に戻す
+    if (log) {
+      document.getElementById(`active-edit-content-${id}`).value = log.content;
+      document.getElementById(`active-edit-project-${id}`).value = log.project || "";
+    }
+    document.getElementById(`active-edit-${id}`).classList.add("hidden");
+    document.getElementById(`active-view-${id}`).classList.remove("hidden");
+  }
+
+  function activeEditKeydown(e, id) {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveActiveEdit(id); }
+    else if (e.key === "Escape") { e.preventDefault(); cancelActiveEdit(id); }
+  }
+
+  async function saveActiveEdit(id) {
+    const log = activeLogMap.get(id);
+    if (!log) return;
+    const content = document.getElementById(`active-edit-content-${id}`).value.trim();
+    const project = document.getElementById(`active-edit-project-${id}`).value.trim();
+    if (!content) { showToast("内容が空です"); return; }
+
+    const btn = document.getElementById(`active-edit-save-${id}`);
+    btn.disabled = true; // 二重送信防止
+    try {
+      const res = await fetch(`/api/logs/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        // タグは変更しない（PUTはprojectを省略すると空で上書きするので必ず送る）
+        body: JSON.stringify({ content, tag: log.tag, project })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      showToast("更新しました ✓");
+      loadActiveLogs();
+      loadLogs();       // 下のカード一覧にも反映
+      fetchProjects();
+    } catch (e) {
+      btn.disabled = false;
+      showToast("更新に失敗しました");
+    }
   }
 
   // ---- 見つかったかも（未登録の近傍ログ・全体共通発見） ----
